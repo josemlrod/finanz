@@ -6,14 +6,17 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "test": "bun test"
   },
   "dependencies": {
     "@react-router/node": "^8",
     "@react-router/serve": "^8",
     "isbot": "^5.1.36",
+    "plaid": "45.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-plaid-link": "5.0.0",
     "react-router": "^8"
   },
   "devDependencies": {
