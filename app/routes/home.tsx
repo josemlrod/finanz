@@ -1,15 +1,18 @@
+import { useSearchParams } from 'react-router';
 import type { Route } from './+types/home';
 import { PlaidLinkButton } from '~/components/plaid-link';
-import {
-  ItemPanel,
-  type DashboardItemData,
-} from '~/components/dashboard/item-panel';
+import { type DashboardItemData } from '~/components/dashboard/item-panel';
 import {
   getItemStore,
   getPlaidService,
   getTransactionStore,
 } from '~/lib/plaid/wiring.server';
 import { env } from '~/lib/env.server';
+import { CategoryBarChart } from '~/components/category-bar-chart';
+import { CategoryTransactions } from '~/components/category-transactions';
+import { MonthSummary } from '~/components/month-summary';
+import { SpendingAreaChart } from '~/components/spending-area-chart';
+import { buildDashboardModel } from '~/lib/dashboard';
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -49,10 +52,34 @@ export async function loader(_args: Route.LoaderArgs) {
 
 export default function Home({ loaderData }: Route.ComponentProps) {
   const { items, isSandbox } = loaderData;
-  console.log('items', items);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [account] = items;
+  const transactions = account?.transactions ?? [];
+
+  const model = buildDashboardModel(transactions);
+
+  const selectedDatum = model.categoryData.find(
+    (datum) => datum.key === searchParams.get('category'),
+  );
+
+  function selectCategory(key: string | null) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (key) {
+          next.set('category', key);
+        } else {
+          next.delete('category');
+        }
+        return next;
+      },
+      { preventScrollReset: true },
+    );
+  }
 
   return (
-    <main className='mx-auto min-h-screen max-w-3xl px-4 py-10'>
+    <main className='mx-auto min-h-screen max-w-5xl px-4 py-10'>
       <header className='mb-8 flex flex-wrap items-center justify-between gap-4'>
         <div>
           <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
@@ -65,47 +92,35 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <PlaidLinkButton className='rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white' />
       </header>
 
-      {items.length === 0 ? (
-        <section className='rounded-xl border border-dashed border-gray-300 px-6 py-16 text-center dark:border-gray-700'>
-          <h2 className='text-lg font-medium text-gray-900 dark:text-gray-100'>
-            No accounts linked yet
-          </h2>
-          {isSandbox ? (
-            <>
-              <p className='mt-2 text-sm text-gray-500 dark:text-gray-400'>
-                Connect a Sandbox bank to see balances and transactions. Use{' '}
-                <code className='rounded bg-gray-100 px-1 py-0.5 text-xs dark:bg-gray-800'>
-                  user_transactions_dynamic
-                </code>{' '}
-                at First Platypus Bank.
-              </p>
-              <p className='mt-4 text-sm text-gray-500 dark:text-gray-400'>
-                Plaid Link will ask to verify a phone number first. In Sandbox,
-                real numbers are rejected — use the pre-filled{' '}
-                <code className='rounded bg-gray-100 px-1 py-0.5 text-xs dark:bg-gray-800'>
-                  415-555-0010
-                </code>{' '}
-                and enter OTP{' '}
-                <code className='rounded bg-gray-100 px-1 py-0.5 text-xs dark:bg-gray-800'>
-                  123456
-                </code>
-                .
-              </p>
-            </>
-          ) : (
-            <p className='mt-2 text-sm text-gray-500 dark:text-gray-400'>
-              Connect your bank to see balances and transactions. History can
-              take a few minutes to arrive after linking.
-            </p>
-          )}
-        </section>
-      ) : (
-        <div className='space-y-6'>
-          {items.map((item) => (
-            <ItemPanel key={item.itemId} item={item} />
-          ))}
-        </div>
-      )}
+      <div className='space-y-6'>
+        <MonthSummary summary={model.summary} />
+        {model.categoryData.length > 0 ? (
+          <>
+            <CategoryBarChart
+              chartData={model.categoryData}
+              chartConfig={model.categoryChartConfig}
+              selectedKey={selectedDatum?.key ?? null}
+              onSelectCategory={selectCategory}
+            />
+            {selectedDatum ? (
+              <CategoryTransactions
+                categoryKey={selectedDatum.key}
+                categoryLabel={selectedDatum.category}
+                transactions={model.transactionsForCategory(selectedDatum.key)}
+                onClose={() => selectCategory(null)}
+              />
+            ) : null}
+            {model.daily.hasSpending ? (
+              <SpendingAreaChart
+                chartData={model.daily.data}
+                seriesKeys={model.daily.seriesKeys}
+                chartConfig={model.daily.chartConfig}
+                monthLabel={model.daily.monthLabel}
+              />
+            ) : null}
+          </>
+        ) : null}
+      </div>
     </main>
   );
 }
