@@ -41,6 +41,20 @@ function loadEnv(extra: Record<string, string> = {}) {
   };
 }
 
+function validEnv(overrides: Record<string, string> = {}) {
+  return {
+    PLAID_CLIENT_ID: "test-client-id",
+    PLAID_SECRET: "test-secret",
+    PLAID_ENV: "sandbox",
+    PLAID_PRODUCTS: "transactions",
+    PLAID_COUNTRY_CODES: "US",
+    PLAID_TRANSACTIONS_DAYS_REQUESTED: "90",
+    PLAID_TOKEN_ENCRYPTION_KEY:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    ...overrides,
+  };
+}
+
 describe("env.server", () => {
   test("fails fast when required vars are missing", () => {
     const result = loadEnv();
@@ -49,33 +63,47 @@ describe("env.server", () => {
   });
 
   test("accepts valid sandbox configuration", () => {
-    const result = loadEnv({
-      PLAID_CLIENT_ID: "test-client-id",
-      PLAID_SECRET: "test-secret",
-      PLAID_ENV: "sandbox",
-      PLAID_PRODUCTS: "transactions",
-      PLAID_COUNTRY_CODES: "US",
-      PLAID_TRANSACTIONS_DAYS_REQUESTED: "90",
-      PLAID_TOKEN_ENCRYPTION_KEY:
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    });
+    const result = loadEnv(validEnv());
 
     expect(result.status).toBe(0);
   });
 
   test("rejects invalid PLAID_ENV", () => {
-    const result = loadEnv({
-      PLAID_CLIENT_ID: "test-client-id",
-      PLAID_SECRET: "test-secret",
-      PLAID_ENV: "staging",
-      PLAID_PRODUCTS: "transactions",
-      PLAID_COUNTRY_CODES: "US",
-      PLAID_TRANSACTIONS_DAYS_REQUESTED: "90",
-      PLAID_TOKEN_ENCRYPTION_KEY:
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    });
+    const result = loadEnv(validEnv({ PLAID_ENV: "staging" }));
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Invalid PLAID_ENV");
+  });
+
+  test("rejects trailing characters in integer values", () => {
+    const result = loadEnv(
+      validEnv({ PLAID_TRANSACTIONS_DAYS_REQUESTED: "90days" }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("must be a positive integer");
+  });
+
+  test("rejects transaction history beyond Plaid's maximum", () => {
+    const result = loadEnv(
+      validEnv({ PLAID_TRANSACTIONS_DAYS_REQUESTED: "731" }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("must be between 1 and 730");
+  });
+
+  test("rejects unknown Plaid products", () => {
+    const result = loadEnv(validEnv({ PLAID_PRODUCTS: "transactionz" }));
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Invalid PLAID_PRODUCTS value");
+  });
+
+  test("rejects unknown Plaid country codes", () => {
+    const result = loadEnv(validEnv({ PLAID_COUNTRY_CODES: "USA" }));
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Invalid PLAID_COUNTRY_CODES value");
   });
 });

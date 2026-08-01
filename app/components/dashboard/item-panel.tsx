@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useFetcher, useRevalidator } from 'react-router';
 import { PlaidLinkButton } from '~/components/plaid-link';
 import type { ItemHealth, LinkedAccount, Transaction } from '~/lib/plaid/types';
@@ -49,12 +49,25 @@ export function ItemPanel({ item }: ItemPanelProps) {
     error?: string;
   }>();
   const revalidator = useRevalidator();
+  const [refreshedAccounts, setRefreshedAccounts] = useState<
+    LinkedAccount[] | null
+  >(null);
 
-  const accounts = refreshFetcher.data?.accounts ?? item.accounts;
+  const accounts = refreshedAccounts ?? item.accounts;
   const isSyncing = syncFetcher.state !== 'idle';
   const isRefreshing = refreshFetcher.state !== 'idle';
   const needsReauth = item.health.state === 'reauth_required';
   const isBroken = needsReauth || item.health.state === 'error';
+
+  useEffect(() => {
+    setRefreshedAccounts(null);
+  }, [item.accounts]);
+
+  useEffect(() => {
+    if (refreshFetcher.state === 'idle' && refreshFetcher.data?.accounts) {
+      setRefreshedAccounts(refreshFetcher.data.accounts);
+    }
+  }, [refreshFetcher.state, refreshFetcher.data]);
 
   useEffect(() => {
     if (syncFetcher.state === 'idle' && syncFetcher.data?.hasUpdates) {
@@ -75,7 +88,10 @@ export function ItemPanel({ item }: ItemPanelProps) {
             {item.institutionName}
           </h2>
           <p className='text-sm text-gray-500 dark:text-gray-400'>
-            Linked {new Date(item.createdAt).toLocaleDateString()}
+            Linked{' '}
+            {new Date(item.createdAt).toLocaleDateString('en-US', {
+              timeZone: 'UTC',
+            })}
           </p>
         </div>
 

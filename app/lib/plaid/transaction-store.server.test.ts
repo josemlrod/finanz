@@ -218,4 +218,25 @@ describe("createFileTransactionStore", () => {
     expect(transactions[0]?.transactionId).toBe("tx_posted");
     expect(transactions[0]?.pending).toBe(false);
   });
+
+  test("serializes concurrent updates across store instances", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "finanz-tx-store-"));
+    const firstStore = createFileTransactionStore(tempDir);
+    const secondStore = createFileTransactionStore(tempDir);
+    const transactions = Array.from({ length: 20 }, (_, index) =>
+      makeTransaction({ transactionId: `tx-${index}` }),
+    );
+
+    await Promise.all(
+      transactions.map((transaction, index) =>
+        (index % 2 === 0 ? firstStore : secondStore).applySync(itemId, {
+          added: [transaction],
+          modified: [],
+          removed: [],
+        }),
+      ),
+    );
+
+    expect(await firstStore.list(itemId)).toHaveLength(transactions.length);
+  });
 });

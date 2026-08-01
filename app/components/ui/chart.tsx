@@ -6,6 +6,8 @@ import { cn } from "~/lib/utils"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
+const SAFE_CHART_KEY = /^[a-zA-Z0-9_-]+$/
+const UNSAFE_CHART_COLOR = /[<>{};]/
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const
 type TooltipNameType = number | string
@@ -81,7 +83,8 @@ function ChartContainer({
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme ?? config.color
+    ([key, config]) =>
+      SAFE_CHART_KEY.test(key) && (config.theme ?? config.color)
   )
 
   if (!colorConfig.length) {
@@ -100,7 +103,9 @@ ${colorConfig
     const color =
       itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
       itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
+    return color && !UNSAFE_CHART_COLOR.test(color)
+      ? `  --color-${key}: ${color};`
+      : null
   })
   .join("\n")}
 }

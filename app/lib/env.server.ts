@@ -1,3 +1,5 @@
+import { CountryCode, Products } from "plaid";
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -22,12 +24,35 @@ function parseList(value: string, name: string): string[] {
   return items;
 }
 
-function parsePositiveInt(name: string, value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
+function parsePositiveInt(name: string, value: string, max?: number): number {
+  const normalized = value.trim();
+  if (!/^[1-9]\d*$/.test(normalized)) {
     throw new Error(`${name} must be a positive integer`);
   }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  if (max !== undefined && parsed > max) {
+    throw new Error(`${name} must be between 1 and ${max}`);
+  }
+
   return parsed;
+}
+
+function parseEnumList<Value extends string>(
+  value: string,
+  name: string,
+  allowedValues: readonly Value[],
+): Value[] {
+  const items = parseList(value, name);
+  const allowed = new Set<string>(allowedValues);
+  const invalid = items.find((item) => !allowed.has(item));
+  if (invalid) {
+    throw new Error(`Invalid ${name} value: ${invalid}`);
+  }
+  return items as Value[];
 }
 
 function parseEncryptionKey(value: string): string {
@@ -54,14 +79,20 @@ export const env = {
   PLAID_CLIENT_ID: required("PLAID_CLIENT_ID"),
   PLAID_SECRET: required("PLAID_SECRET"),
   PLAID_ENV: plaidEnv,
-  PLAID_PRODUCTS: parseList(required("PLAID_PRODUCTS"), "PLAID_PRODUCTS"),
-  PLAID_COUNTRY_CODES: parseList(
+  PLAID_PRODUCTS: parseEnumList(
+    required("PLAID_PRODUCTS"),
+    "PLAID_PRODUCTS",
+    Object.values(Products),
+  ),
+  PLAID_COUNTRY_CODES: parseEnumList(
     required("PLAID_COUNTRY_CODES"),
     "PLAID_COUNTRY_CODES",
+    Object.values(CountryCode),
   ),
   PLAID_TRANSACTIONS_DAYS_REQUESTED: parsePositiveInt(
     "PLAID_TRANSACTIONS_DAYS_REQUESTED",
     required("PLAID_TRANSACTIONS_DAYS_REQUESTED"),
+    730,
   ),
   PLAID_TOKEN_ENCRYPTION_KEY: parseEncryptionKey(
     required("PLAID_TOKEN_ENCRYPTION_KEY"),

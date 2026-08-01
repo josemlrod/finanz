@@ -54,8 +54,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const { items, isSandbox } = loaderData;
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [account] = items;
-  const transactions = account?.transactions ?? [];
+  const transactions = items.flatMap((item) => item.transactions);
 
   const model = buildDashboardModel(transactions);
 

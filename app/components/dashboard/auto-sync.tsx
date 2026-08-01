@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useFetcher, useRevalidator } from "react-router";
 
 /**
@@ -19,45 +19,40 @@ interface AutoSyncProps {
 export function AutoSync({ itemId, enabled }: AutoSyncProps) {
   const fetcher = useFetcher<{ hasUpdates?: boolean; error?: string }>();
   const revalidator = useRevalidator();
-  const attemptRef = useRef(0);
-  const [scheduled, setScheduled] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!enabled) {
-      attemptRef.current = 0;
-      setScheduled(false);
+      setAttempt(0);
       setFailed(false);
     }
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled || failed || scheduled || fetcher.state !== "idle") {
+    if (!enabled || failed || fetcher.state !== "idle") {
       return;
     }
 
-    const attempt = attemptRef.current;
     if (attempt >= MAX_AUTO_SYNC_ATTEMPTS) {
       return;
     }
 
     const delay = AUTO_SYNC_DELAYS_MS[attempt];
-    setScheduled(true);
 
     const timer = window.setTimeout(() => {
-      setScheduled(false);
       fetcher.submit({ itemId }, { method: "POST", action: "/api/plaid/sync" });
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [enabled, failed, scheduled, fetcher.state, itemId]);
+  }, [attempt, enabled, failed, fetcher, itemId]);
 
   useEffect(() => {
     if (fetcher.state !== "idle" || fetcher.data === undefined) {
       return;
     }
 
-    attemptRef.current += 1;
+    setAttempt((current) => current + 1);
 
     // A failing sync will keep failing; stop rather than burn the schedule.
     if (fetcher.data.error) {

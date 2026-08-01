@@ -39,6 +39,7 @@ export function buildDashboardModel(
   today: string = currentDateString(),
 ): DashboardModel {
   const month = today.slice(0, 7);
+  const throughDay = dayOfMonth(today);
 
   const summary = monthSpendSummary(transactions, month, today);
 
@@ -46,10 +47,10 @@ export function buildDashboardModel(
   const previousTotals = totalsByCategory(
     transactions,
     previousYearMonth(month),
-    dayOfMonth(today),
+    throughDay,
   );
   const categoryData = toCategoryData(
-    totalsByCategory(transactions, month),
+    totalsByCategory(transactions, month, throughDay),
     previousTotals,
   );
   const categoryChartConfig = buildCategoryChartConfig(categoryData);
@@ -57,6 +58,7 @@ export function buildDashboardModel(
   const { data, seriesKeys, monthLabel } = dailySpendingByCategory(
     transactions,
     month,
+    throughDay,
   );
   const chartConfig = buildMonthlyChartConfig(
     seriesKeys.filter((key) => key !== 'other'),
@@ -78,6 +80,6 @@ export function buildDashboardModel(
       hasSpending,
     },
     transactionsForCategory: (categoryKey: string) =>
-      transactionsForCategory(transactions, month, categoryKey),
+      transactionsForCategory(transactions, month, categoryKey, throughDay),
   };
 }

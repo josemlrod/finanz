@@ -36,7 +36,11 @@ export async function action({ request }: Route.ActionArgs) {
         typeof institutionName === "string" ? institutionName : "Unknown bank",
     });
 
-    await plaid.syncTransactions(item.itemId, { prime: true });
+    try {
+      await plaid.syncTransactions(item.itemId, { prime: true });
+    } catch {
+      // The Item is linked; the dashboard's auto-sync can retry the backfill.
+    }
     return redirect("/");
   } catch (error) {
     const plaidError = normalizePlaidError(error);

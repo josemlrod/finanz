@@ -1,10 +1,13 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createKeyedLock } from "~/lib/plaid/async-lock.server";
 import type {
   SyncDiff,
   Transaction,
   TransactionStore,
 } from "~/lib/plaid/types";
+
+const withFileLock = createKeyedLock<string>();
 
 interface TransactionsFile {
   byItem: Record<string, Record<string, Transaction>>;
@@ -43,19 +46,23 @@ export function createFileTransactionStore(dataDir = ".data"): TransactionStore 
 
   return {
     async applySync(itemId, diff) {
-      const data = await readTransactionsFile(filePath);
-      data.byItem[itemId] = applySyncDiff(data.byItem[itemId] ?? {}, diff);
-      await writeTransactionsFile(filePath, data);
+      await withFileLock(filePath, async () => {
+        const data = await readTransactionsFile(filePath);
+        data.byItem[itemId] = applySyncDiff(data.byItem[itemId] ?? {}, diff);
+        await writeTransactionsFile(filePath, data);
+      });
     },
 
     async list(itemId) {
-      const data = await readTransactionsFile(filePath);
-      const bucket = data.byItem[itemId];
-      if (!bucket) {
-        return [];
-      }
+      return withFileLock(filePath, async () => {
+        const data = await readTransactionsFile(filePath);
+        const bucket = data.byItem[itemId];
+        if (!bucket) {
+          return [];
+        }
 
-      return Object.values(bucket).sort((a, b) => b.date.localeCompare(a.date));
+        return Object.values(bucket).sort((a, b) => b.date.localeCompare(a.date));
+      });
     },
   };
 }

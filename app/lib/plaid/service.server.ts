@@ -1,13 +1,12 @@
 import type { LinkTokenCreateRequest, PlaidApi } from "plaid";
 import {
-  CountryCode,
   PersonalFinanceCategoryVersion,
-  Products,
   type AccountBase,
   type Transaction as PlaidTransaction,
 } from "plaid";
 import { decrypt, encrypt } from "~/lib/crypto.server";
 import { env } from "~/lib/env.server";
+import { createKeyedLock } from "~/lib/plaid/async-lock.server";
 import { getPlaidClient } from "~/lib/plaid/client.server";
 import { HEALTHY_ITEM, toItemHealth } from "~/lib/plaid/errors.server";
 import { runTransactionsSync } from "~/lib/plaid/sync-engine.server";
@@ -24,6 +23,7 @@ import type {
 const DEFAULT_USER_ID = "default-user";
 /** Plaid Sandbox returning-user seed number — OTP is always 123456. */
 const DEFAULT_SANDBOX_LINK_PHONE = "+14155550010";
+const withItemSyncLock = createKeyedLock<string>();
 
 export interface ExchangeMetadata {
   institutionId: string;
@@ -67,7 +67,7 @@ export class PlaidService {
     const request: LinkTokenCreateRequest = {
       client_name: "Finanz",
       language: "en",
-      country_codes: env.PLAID_COUNTRY_CODES as CountryCode[],
+      country_codes: env.PLAID_COUNTRY_CODES,
       user: {
         client_user_id: userId,
         ...(env.PLAID_ENV === "sandbox"
@@ -85,7 +85,7 @@ export class PlaidService {
       // Update mode rejects `products`; the Item's existing products are reused.
       request.access_token = await this.getDecryptedAccessToken(itemId);
     } else {
-      request.products = env.PLAID_PRODUCTS as Products[];
+      request.products = env.PLAID_PRODUCTS;
       request.transactions = {
         days_requested: env.PLAID_TRANSACTIONS_DAYS_REQUESTED,
       };
@@ -161,6 +161,15 @@ export class PlaidService {
     itemId: string,
     options: SyncTransactionsOptions = {},
   ): Promise<SyncTransactionsResult> {
+    return withItemSyncLock(itemId, () =>
+      this.runSyncTransactions(itemId, options),
+    );
+  }
+
+  private async runSyncTransactions(
+    itemId: string,
+    options: SyncTransactionsOptions,
+  ): Promise<SyncTransactionsResult> {
     const item = await this.itemStore.get(itemId);
     if (!item) {
       throw new Error(`Item not found: ${itemId}`);
@@ -201,12 +210,12 @@ export class PlaidService {
 
     const { diff, finalCursor } = result;
 
-    if (finalCursor) {
-      await this.itemStore.setCursor(itemId, finalCursor);
-    }
-
     if (hasDiffChanges(diff)) {
       await this.transactionStore.applySync(itemId, diff);
+    }
+
+    if (finalCursor) {
+      await this.itemStore.setCursor(itemId, finalCursor);
     }
 
     return { diff, hasUpdates: hasDiffChanges(diff) };

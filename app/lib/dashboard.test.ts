@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import type { Transaction } from './plaid/types.ts';
 import { buildDashboardModel } from './dashboard.ts';
 
@@ -60,12 +60,21 @@ describe('buildDashboardModel', () => {
     const model = buildDashboardModel(transactions, today);
 
     expect(model.month).toBe('2026-07');
-    expect(model.summary.total).toBe(150);
+    expect(model.summary.total).toBe(100);
     expect(model.summary.previousTotal).toBe(40);
     expect(model.summary.hasPreviousData).toBe(true);
-    expect(model.summary.deltaAmount).toBe(110);
-    expect(model.summary.deltaPct).toBe(275);
+    expect(model.summary.deltaAmount).toBe(60);
+    expect(model.summary.deltaPct).toBe(150);
     expect(model.summary.monthLabel).toBe('July 2026');
+    expect(
+      model
+        .transactionsForCategory('food_and_drink')
+        .map((transaction) => transaction.transactionId),
+    ).toEqual(['jul-1']);
+    expect(
+      model.daily.data.find((row) => row.date === '2026-07-20')
+        ?.food_and_drink,
+    ).toBe(0);
   });
 
   it('builds categoryData sorted descending with previous totals and deltaPct', () => {
@@ -214,7 +223,7 @@ describe('buildDashboardModel', () => {
     expect(model.daily.hasSpending).toBe(false);
   });
 
-  it('returns category transactions for the month sorted by date descending', () => {
+  it('returns category transactions through today', () => {
     const transactions = [
       makeTransaction({
         transactionId: 'b',
@@ -271,8 +280,7 @@ describe('buildDashboardModel', () => {
     const model = buildDashboardModel(transactions, today);
     const result = model.transactionsForCategory('food_and_drink');
 
-    expect(result.map((t) => t.transactionId)).toEqual(['a', 'b']);
-    expect(result[0]?.date).toBe('2026-07-20');
-    expect(result[1]?.date).toBe('2026-07-10');
+    expect(result.map((t) => t.transactionId)).toEqual(['b']);
+    expect(result[0]?.date).toBe('2026-07-10');
   });
 });

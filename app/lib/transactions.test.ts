@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import type { Transaction } from './plaid/types.ts';
 import {
   monthSpendSummary,
@@ -149,11 +149,11 @@ describe('monthSpendSummary', () => {
 
     const summary = monthSpendSummary(transactions, '2026-07', '2026-07-15');
 
-    expect(summary.total).toBe(150);
+    expect(summary.total).toBe(100);
     expect(summary.previousTotal).toBe(40);
     expect(summary.hasPreviousData).toBe(true);
-    expect(summary.deltaAmount).toBe(110);
-    expect(summary.deltaPct).toBe(275);
+    expect(summary.deltaAmount).toBe(60);
+    expect(summary.deltaPct).toBe(150);
     expect(summary.monthLabel).toBe('July 2026');
   });
 

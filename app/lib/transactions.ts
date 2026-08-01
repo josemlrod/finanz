@@ -93,8 +93,7 @@ function formatDayLabel(date: string) {
 }
 
 function daysInMonth(yearMonth: string) {
-  const [year, month] = yearMonth.split('-').map(Number);
-  const count = new Date(year, month, 0).getDate();
+  const count = lastDayOfMonth(yearMonth);
   const days: string[] = [];
 
   for (let day = 1; day <= count; day++) {
@@ -184,7 +183,7 @@ export function monthSpendSummary(
     ? dayOfMonth(today)
     : lastDayOfMonth(month);
 
-  const total = sumOutflows(transactions, month);
+  const total = sumOutflows(transactions, month, cutoffDay);
   const previousMonth = previousYearMonth(month);
   const previousThroughDay = Math.min(cutoffDay, lastDayOfMonth(previousMonth));
   const previousTotal = sumOutflows(
@@ -215,12 +214,14 @@ export function transactionsForCategory(
   transactions: Transaction[],
   month: string,
   categoryKey: string,
+  throughDay?: number,
 ): Transaction[] {
   return transactions
     .filter(
       (t) =>
         t.amount > 0 &&
         t.date.startsWith(month) &&
+        (throughDay === undefined || dayOfMonth(t.date) <= throughDay) &&
         t.personalFinanceCategory?.primary.toLowerCase() === categoryKey,
     )
     .sort((a, b) => {
@@ -258,8 +259,9 @@ function topCategoryKeys(
 export function dailySpendingByCategory(
   transactions: Transaction[],
   month: string = currentYearMonth(),
+  throughDay?: number,
 ): { data: DailySpendingRow[]; seriesKeys: string[]; monthLabel: string } {
-  const totals = totalsByCategory(transactions, month);
+  const totals = totalsByCategory(transactions, month, throughDay);
   const topKeys = topCategoryKeys(totals);
   const seriesKeys = [...topKeys, 'other'];
 
@@ -269,6 +271,7 @@ export function dailySpendingByCategory(
     if (!t.personalFinanceCategory) continue;
     if (t.amount <= 0) continue;
     if (!t.date.startsWith(month)) continue;
+    if (throughDay !== undefined && dayOfMonth(t.date) > throughDay) continue;
 
     const cat = t.personalFinanceCategory.primary.toLowerCase();
     const seriesKey = topKeys.includes(cat) ? cat : 'other';

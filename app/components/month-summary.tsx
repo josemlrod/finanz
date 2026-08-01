@@ -14,16 +14,7 @@ type MonthSummaryProps = {
   summary: MonthSpendSummary;
 };
 
-function formatHeroCurrency(value: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatComparisonCurrency(value: number) {
+function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -39,12 +30,7 @@ function formatDeltaPct(pct: number) {
 
 function formatSignedDeltaAmount(amount: number) {
   const sign = amount > 0 ? '+' : amount < 0 ? '−' : '';
-  const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Math.abs(amount));
+  const formatted = formatCurrency(Math.abs(amount));
   return `(${sign}${formatted})`;
 }
 
@@ -61,7 +47,7 @@ export function MonthSummary({ summary }: MonthSummaryProps) {
         <div className='flex flex-col gap-2'>
           <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
             <p className='text-4xl font-bold tabular-nums'>
-              {formatHeroCurrency(summary.total)}
+              {formatCurrency(summary.total)}
             </p>
             {summary.deltaPct !== null && (
               <span
@@ -87,7 +73,7 @@ export function MonthSummary({ summary }: MonthSummaryProps) {
           <p className='text-sm text-muted-foreground'>
             {summary.hasPreviousData ? (
               <>
-                vs {formatComparisonCurrency(summary.previousTotal)} by this
+                vs {formatCurrency(summary.previousTotal)} by this
                 point last month
               </>
             ) : (

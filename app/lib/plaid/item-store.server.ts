@@ -1,6 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createKeyedLock } from "~/lib/plaid/async-lock.server";
 import type { ItemStore, PlaidItem } from "~/lib/plaid/types";
+
+const withFileLock = createKeyedLock<string>();
 
 interface ItemsFile {
   items: PlaidItem[];
@@ -34,40 +37,52 @@ export function createFileItemStore(dataDir = ".data"): ItemStore {
 
   return {
     async save(item) {
-      const data = await readItemsFile(filePath);
-      const index = data.items.findIndex((existing) => existing.itemId === item.itemId);
-      if (index >= 0) {
-        data.items[index] = item;
-      } else {
-        data.items.push(item);
-      }
-      await writeItemsFile(filePath, data);
+      await withFileLock(filePath, async () => {
+        const data = await readItemsFile(filePath);
+        const index = data.items.findIndex(
+          (existing) => existing.itemId === item.itemId,
+        );
+        if (index >= 0) {
+          data.items[index] = item;
+        } else {
+          data.items.push(item);
+        }
+        await writeItemsFile(filePath, data);
+      });
     },
 
     async list() {
-      const data = await readItemsFile(filePath);
-      return [...data.items];
+      return withFileLock(filePath, async () => {
+        const data = await readItemsFile(filePath);
+        return [...data.items];
+      });
     },
 
     async get(itemId) {
-      const data = await readItemsFile(filePath);
-      return data.items.find((item) => item.itemId === itemId) ?? null;
+      return withFileLock(filePath, async () => {
+        const data = await readItemsFile(filePath);
+        return data.items.find((item) => item.itemId === itemId) ?? null;
+      });
     },
 
     async setCursor(itemId, cursor) {
-      const data = await readItemsFile(filePath);
-      const item = data.items.find((existing) => existing.itemId === itemId);
-      if (!item) {
-        throw new Error(`Item not found: ${itemId}`);
-      }
-      item.cursor = cursor;
-      await writeItemsFile(filePath, data);
+      await withFileLock(filePath, async () => {
+        const data = await readItemsFile(filePath);
+        const item = data.items.find((existing) => existing.itemId === itemId);
+        if (!item) {
+          throw new Error(`Item not found: ${itemId}`);
+        }
+        item.cursor = cursor;
+        await writeItemsFile(filePath, data);
+      });
     },
 
     async remove(itemId) {
-      const data = await readItemsFile(filePath);
-      data.items = data.items.filter((item) => item.itemId !== itemId);
-      await writeItemsFile(filePath, data);
+      await withFileLock(filePath, async () => {
+        const data = await readItemsFile(filePath);
+        data.items = data.items.filter((item) => item.itemId !== itemId);
+        await writeItemsFile(filePath, data);
+      });
     },
   };
 }

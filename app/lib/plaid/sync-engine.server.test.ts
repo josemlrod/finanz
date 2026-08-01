@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { PLAID_ERROR_CODES } from "~/lib/plaid/errors.server";
 import {
   runTransactionsSync,
