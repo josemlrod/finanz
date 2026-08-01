@@ -1,0 +1,5 @@
+# Use Plaid /transactions/sync with cursor pagination
+
+Fetching "just this month and last month" via `/transactions/get` date-range queries looks simpler for an MVP but is not: `/transactions/get` is still paginated (offset-based, 500 per page), sends no removed-transaction notifications, handles pending→posted transitions poorly, and forces a full re-fetch and manual reconciliation of the window on every refresh. `/transactions/sync` gives an incremental added/modified/removed diff behind a cursor, at the cost of implementing Plaid's documented sync protocol: consume pages until `has_more` is false, persist the cursor only after a complete pagination, and restart from the last saved cursor on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` (bounded retries).
+
+We keep `/transactions/sync` and accept the protocol's pagination complexity as irreducible; it lives in the sync engine module so it is implemented and tested exactly once. Do not "simplify" this by switching to date-range fetches.
