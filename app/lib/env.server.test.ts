@@ -15,6 +15,8 @@ const PLAID_ENV_KEYS = [
   "PLAID_REDIRECT_URI",
   "PLAID_WEBHOOK_URL",
   "PLAID_SANDBOX_LINK_PHONE",
+  "CLERK_SECRET_KEY",
+  "VITE_CLERK_PUBLISHABLE_KEY",
 ] as const;
 
 function loadEnv(extra: Record<string, string> = {}) {
@@ -51,6 +53,8 @@ function validEnv(overrides: Record<string, string> = {}) {
     PLAID_TRANSACTIONS_DAYS_REQUESTED: "90",
     PLAID_TOKEN_ENCRYPTION_KEY:
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    CLERK_SECRET_KEY: "test-clerk-secret",
+    VITE_CLERK_PUBLISHABLE_KEY: "test-clerk-publishable",
     ...overrides,
   };
 }

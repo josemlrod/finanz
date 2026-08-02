@@ -100,6 +100,9 @@ export const env = {
   PLAID_REDIRECT_URI: optional("PLAID_REDIRECT_URI"),
   PLAID_WEBHOOK_URL: optional("PLAID_WEBHOOK_URL"),
   PLAID_SANDBOX_LINK_PHONE: optional("PLAID_SANDBOX_LINK_PHONE"),
+
+  CLERK_SECRET_KEY: required("CLERK_SECRET_KEY"),
+  VITE_CLERK_PUBLISHABLE_KEY: required("VITE_CLERK_PUBLISHABLE_KEY"),
 } as const;
 
 export type PlaidEnvName = typeof env.PLAID_ENV;
