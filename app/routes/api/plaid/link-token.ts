@@ -1,10 +1,13 @@
 import { data } from "react-router";
 import type { Route } from "./+types/link-token";
 import { normalizePlaidError } from "~/lib/plaid/errors.server";
+import { requireApiAuth } from "~/lib/auth.server";
 import { getPlaidService } from "~/lib/plaid/wiring.server";
 
-export async function action({ request }: Route.ActionArgs) {
-  const formData = await request.formData();
+export async function action(args: Route.ActionArgs) {
+  await requireApiAuth(args);
+
+  const formData = await args.request.formData();
   const itemId = formData.get("itemId");
 
   try {

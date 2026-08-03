@@ -13,6 +13,7 @@ import { CategoryTransactions } from '~/components/category-transactions';
 import { MonthSummary } from '~/components/month-summary';
 import { SpendingAreaChart } from '~/components/spending-area-chart';
 import { buildDashboardModel } from '~/lib/dashboard';
+import { requirePageAuth } from '~/lib/auth.server';
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -21,7 +22,9 @@ export function meta(_args: Route.MetaArgs) {
   ];
 }
 
-export async function loader(_args: Route.LoaderArgs) {
+export async function loader(args: Route.LoaderArgs) {
+  await requirePageAuth(args);
+
   const plaid = getPlaidService();
   const items = await getItemStore().list();
   const transactionStore = getTransactionStore();
