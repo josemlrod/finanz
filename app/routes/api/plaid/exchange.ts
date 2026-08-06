@@ -1,10 +1,13 @@
 import { data, redirect } from "react-router";
 import type { Route } from "./+types/exchange";
 import { normalizePlaidError } from "~/lib/plaid/errors.server";
+import { requireApiAuth } from "~/lib/auth.server";
 import { getPlaidService } from "~/lib/plaid/wiring.server";
 
-export async function action({ request }: Route.ActionArgs) {
-  const formData = await request.formData();
+export async function action(args: Route.ActionArgs) {
+  await requireApiAuth(args);
+
+  const formData = await args.request.formData();
   const publicToken = formData.get("public_token");
   const institutionId = formData.get("institution_id");
   const institutionName = formData.get("institution_name");
