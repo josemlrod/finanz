@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSignIn } from '@clerk/react-router';
 import { getAuth } from '@clerk/react-router/server';
-import { redirect, useNavigate, useSearchParams } from 'react-router';
+import { redirect } from 'react-router';
 
 import type { Route } from './+types/sign-in';
 import { Button } from '~/components/ui/button';
@@ -31,21 +31,6 @@ export async function loader(args: Route.LoaderArgs) {
 
 type Step = 'email' | 'code';
 
-function resolveRedirectUrl(raw: string | null): string {
-  if (!raw) return '/';
-
-  if (raw.startsWith('/') && !raw.startsWith('//')) {
-    return raw;
-  }
-
-  try {
-    const parsed = new URL(raw);
-    return `${parsed.pathname}${parsed.search}${parsed.hash}` || '/';
-  } catch {
-    return '/';
-  }
-}
-
 function formatClerkError(
   error: { message?: string; longMessage?: string } | null | undefined,
 ): string | null {
@@ -55,9 +40,6 @@ function formatClerkError(
 
 function SignInForm() {
   const { signIn, errors, fetchStatus } = useSignIn();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const redirectPath = resolveRedirectUrl(searchParams.get('redirect_url'));
 
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
@@ -117,13 +99,13 @@ function SignInForm() {
     }
 
     if (signIn.status !== 'complete') {
-      setFormError('Sign-in is not complete yet. Try again.');
+      setFormError('This sign-in requires an unsupported verification step.');
       return;
     }
 
     const finalizeResult = await signIn.finalize({
       navigate: ({ decorateUrl }) => {
-        navigate(decorateUrl(redirectPath));
+        window.location.assign(decorateUrl('/'));
       },
     });
 
