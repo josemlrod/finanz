@@ -1,0 +1,24 @@
+# App name and primary_region are set by `fly launch --no-deploy`.
+app = "finanz"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/sign-in"
+
+[mounts]
+  source = "finanz_data"
+  destination = "/app/.data"
