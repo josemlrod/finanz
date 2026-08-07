@@ -1,3 +1,4 @@
+import { SignOutButton } from '@clerk/react-router';
 import { useSearchParams } from 'react-router';
 import type { Route } from './+types/home';
 import { PlaidLinkButton } from '~/components/plaid-link';
@@ -91,7 +92,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             Personal finance{isSandbox ? ' — Plaid Sandbox' : ''}
           </p>
         </div>
-        <PlaidLinkButton className='rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white' />
+        <div className='flex flex-wrap items-center gap-2'>
+          <SignOutButton redirectUrl='/sign-in'>
+            <button
+              type='button'
+              className='rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition duration-200 ease-out hover:bg-muted disabled:opacity-50'
+            >
+              Sign out
+            </button>
+          </SignOutButton>
+          <PlaidLinkButton className='rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition duration-200 ease-out hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white' />
+        </div>
       </header>
 
       <div className='space-y-6'>

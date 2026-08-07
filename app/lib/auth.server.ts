@@ -4,9 +4,7 @@ import { data, redirect, type LoaderFunctionArgs } from "react-router";
 export async function requirePageAuth(args: LoaderFunctionArgs) {
   const auth = await getAuth(args);
   if (!auth.isAuthenticated) {
-    throw redirect(
-      `/sign-in?redirect_url=${encodeURIComponent(args.request.url)}`,
-    );
+    throw redirect('/sign-in');
   }
   return { userId: auth.userId };
 }
