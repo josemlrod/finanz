@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useSignIn } from '@clerk/react-router';
+import { useSignUp } from '@clerk/react-router';
 import { getAuth } from '@clerk/react-router/server';
 import { Link, redirect } from 'react-router';
 
-import type { Route } from './+types/sign-in';
+import type { Route } from './+types/sign-up';
 import { Button } from '~/components/ui/button';
 import {
   Card,
@@ -16,8 +16,8 @@ import { cn } from '~/lib/utils';
 
 export function meta(_args: Route.MetaArgs) {
   return [
-    { title: 'Sign in — Finanz' },
-    { name: 'description', content: 'Sign in to Finanz' },
+    { title: 'Sign up - Finanz' },
+    { name: 'description', content: 'Create your Finanz account' },
   ];
 }
 
@@ -30,6 +30,7 @@ export async function loader(args: Route.LoaderArgs) {
 }
 
 type Step = 'email' | 'code';
+type PendingAction = 'send' | 'verify' | 'resend' | 'reset';
 
 function formatClerkError(
   error: { message?: string; longMessage?: string } | null | undefined,
@@ -38,19 +39,18 @@ function formatClerkError(
   return error.longMessage ?? error.message ?? 'Something went wrong.';
 }
 
-function SignInForm() {
-  const { signIn, errors, fetchStatus } = useSignIn();
+function SignUpForm() {
+  const { signUp, errors, fetchStatus } = useSignUp();
 
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
-  const isPending = fetchStatus === 'fetching';
-
+  const isPending = fetchStatus === 'fetching' || pendingAction !== null;
   const fieldError =
-    step === 'email' ? errors.fields.identifier : errors.fields.code;
-
+    step === 'email' ? errors.fields.emailAddress : errors.fields.code;
   const globalError = errors.global?.[0];
   const inlineError =
     formError ??
@@ -67,19 +67,25 @@ function SignInForm() {
       return;
     }
 
-    const createResult = await signIn.create({ identifier: trimmedEmail });
-    if (createResult.error) {
-      setFormError(formatClerkError(createResult.error));
-      return;
-    }
+    setPendingAction('send');
+    try {
+      const createResult = await signUp.create({ emailAddress: trimmedEmail });
+      if (createResult.error) {
+        setFormError(formatClerkError(createResult.error));
+        return;
+      }
 
-    const sendResult = await signIn.emailCode.sendCode();
-    if (sendResult.error) {
-      setFormError(formatClerkError(sendResult.error));
-      return;
-    }
+      const sendResult = await signUp.verifications.sendEmailCode();
+      if (sendResult.error) {
+        setFormError(formatClerkError(sendResult.error));
+        return;
+      }
 
-    setStep('code');
+      setEmail(trimmedEmail);
+      setStep('code');
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function handleCodeSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -92,50 +98,72 @@ function SignInForm() {
       return;
     }
 
-    const verifyResult = await signIn.emailCode.verifyCode({ code: trimmedCode });
-    if (verifyResult.error) {
-      setFormError(formatClerkError(verifyResult.error));
-      return;
-    }
+    setPendingAction('verify');
+    try {
+      const verifyResult = await signUp.verifications.verifyEmailCode({
+        code: trimmedCode,
+      });
+      if (verifyResult.error) {
+        setFormError(formatClerkError(verifyResult.error));
+        return;
+      }
 
-    if (signIn.status !== 'complete') {
-      setFormError('This sign-in requires an unsupported verification step.');
-      return;
-    }
+      if (signUp.status !== 'complete') {
+        setFormError('This sign-up requires an unsupported verification step.');
+        return;
+      }
 
-    const finalizeResult = await signIn.finalize({
-      navigate: ({ decorateUrl }) => {
-        window.location.assign(decorateUrl('/'));
-      },
-    });
+      const finalizeResult = await signUp.finalize({
+        navigate: ({ decorateUrl }) => {
+          window.location.assign(decorateUrl('/'));
+        },
+      });
 
-    if (finalizeResult.error) {
-      setFormError(formatClerkError(finalizeResult.error));
+      if (finalizeResult.error) {
+        setFormError(formatClerkError(finalizeResult.error));
+      }
+    } finally {
+      setPendingAction(null);
     }
   }
 
   async function handleResendCode() {
     setFormError(null);
-    const sendResult = await signIn.emailCode.sendCode();
-    if (sendResult.error) {
-      setFormError(formatClerkError(sendResult.error));
+    setPendingAction('resend');
+    try {
+      const sendResult = await signUp.verifications.sendEmailCode();
+      if (sendResult.error) {
+        setFormError(formatClerkError(sendResult.error));
+      }
+    } finally {
+      setPendingAction(null);
     }
   }
 
   async function handleUseDifferentEmail() {
     setFormError(null);
-    setCode('');
-    await signIn.reset();
-    setStep('email');
+    setPendingAction('reset');
+    try {
+      const resetResult = await signUp.reset();
+      if (resetResult.error) {
+        setFormError(formatClerkError(resetResult.error));
+        return;
+      }
+
+      setCode('');
+      setStep('email');
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   return (
     <Card className='w-full max-w-md'>
       <CardHeader>
-        <CardTitle>Sign in to Finanz</CardTitle>
+        <CardTitle>Create your Finanz account</CardTitle>
         <CardDescription>
           {step === 'email'
-            ? 'Enter your email to receive a one-time sign-in code.'
+            ? 'Enter your email to receive a one-time verification code.'
             : `We sent a 6-digit code to ${email}.`}
         </CardDescription>
       </CardHeader>
@@ -174,10 +202,7 @@ function SignInForm() {
               </div>
 
               {inlineError ? (
-                <p
-                  role='alert'
-                  className='text-sm text-destructive'
-                >
+                <p role='alert' className='text-sm text-destructive'>
                   {inlineError}
                 </p>
               ) : null}
@@ -187,7 +212,7 @@ function SignInForm() {
                 disabled={isPending}
                 className='w-full'
               >
-                {isPending ? 'Sending code…' : 'Continue'}
+                {pendingAction === 'send' ? 'Sending code...' : 'Continue'}
               </Button>
             </form>
           ) : (
@@ -223,10 +248,7 @@ function SignInForm() {
               </div>
 
               {inlineError ? (
-                <p
-                  role='alert'
-                  className='text-sm text-destructive'
-                >
+                <p role='alert' className='text-sm text-destructive'>
                   {inlineError}
                 </p>
               ) : null}
@@ -236,7 +258,7 @@ function SignInForm() {
                 disabled={isPending || code.length !== 6}
                 className='w-full'
               >
-                {isPending ? 'Verifying…' : 'Sign in'}
+                {pendingAction === 'verify' ? 'Verifying...' : 'Create account'}
               </Button>
 
               <div className='flex flex-wrap items-center justify-between gap-2'>
@@ -248,7 +270,7 @@ function SignInForm() {
                   onClick={() => void handleResendCode()}
                   className='transition-colors duration-200 ease-out'
                 >
-                  Resend code
+                  {pendingAction === 'resend' ? 'Resending...' : 'Resend code'}
                 </Button>
                 <Button
                   type='button'
@@ -258,7 +280,9 @@ function SignInForm() {
                   onClick={() => void handleUseDifferentEmail()}
                   className='transition-colors duration-200 ease-out'
                 >
-                  Use a different email
+                  {pendingAction === 'reset'
+                    ? 'Resetting...'
+                    : 'Use a different email'}
                 </Button>
               </div>
             </form>
@@ -266,9 +290,9 @@ function SignInForm() {
         </div>
 
         <p className='mt-4 text-center text-sm text-muted-foreground'>
-          Don&apos;t have an account?{' '}
-          <Link className='text-primary hover:underline' to='/sign-up'>
-            Sign up
+          Already have an account?{' '}
+          <Link className='text-primary hover:underline' to='/sign-in'>
+            Sign in
           </Link>
         </p>
       </CardContent>
@@ -276,10 +300,10 @@ function SignInForm() {
   );
 }
 
-export default function SignIn() {
+export default function SignUp() {
   return (
     <main className='mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-10'>
-      <SignInForm />
+      <SignUpForm />
     </main>
   );
 }
