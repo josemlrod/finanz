@@ -75,6 +75,99 @@ bun install
 | `bun run typecheck` | Generate route types + `tsc` |
 | `bun test` | Unit tests (crypto, env validation, error mapping, sync reconciliation) |
 
+## Fly.io deployment
+
+The app runs as a single Fly Machine with a persistent volume for `.data/` (JSON file store). Do **not** scale beyond one machine — in-process file locks assume a single writer.
+
+### Prerequisites
+
+- [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated (`fly auth login`)
+- Plaid **production** API keys (requires [Plaid production access approval](https://plaid.com/docs/api/production/))
+- Clerk **production** instance with live keys (`sk_live_…`, `pk_live_…`)
+
+### 1. Create the Fly app (no deploy yet)
+
+From the repo root:
+
+```bash
+fly launch --no-deploy
+```
+
+Review `fly.toml` — confirm `internal_port = 3000`, the `[mounts]` destination is `/app/.data`, and the app name/region look correct.
+
+`fly launch` may create two Machines by default. Scale to exactly one:
+
+```bash
+fly scale count 1
+```
+
+### 2. Create the data volume
+
+Create a volume in the **same region** as your Machine (check with `fly status`):
+
+```bash
+fly volumes create finanz_data --region <region> --size 1
+```
+
+The volume name must match `source` in `fly.toml` (`finanz_data`). Redeploy after the volume exists so the Machine mounts it at `/app/.data`.
+
+### 3. Set secrets
+
+Generate a fresh encryption key for production (`openssl rand -hex 32`). **Do not** reuse the sandbox key — existing encrypted tokens would be unreadable anyway on a fresh deploy.
+
+```bash
+fly secrets set \
+  PLAID_CLIENT_ID="<production-client-id>" \
+  PLAID_SECRET="<production-secret>" \
+  PLAID_ENV="production" \
+  PLAID_PRODUCTS="transactions" \
+  PLAID_COUNTRY_CODES="US" \
+  PLAID_TRANSACTIONS_DAYS_REQUESTED="90" \
+  PLAID_TOKEN_ENCRYPTION_KEY="<64-hex-chars-from-openssl-rand-hex-32>" \
+  CLERK_SECRET_KEY="sk_live_..." \
+  VITE_CLERK_PUBLISHABLE_KEY="pk_live_..."
+```
+
+Optional Plaid settings (set when needed):
+
+```bash
+fly secrets set PLAID_REDIRECT_URI="https://<your-domain>/..."   # mobile OAuth
+fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
+```
+
+### 4. Clerk production instance
+
+1. In the [Clerk Dashboard](https://dashboard.clerk.com/), create a **production** instance (separate from development).
+2. Add your Fly/custom domain under **Domains** and create the DNS **CNAME** records Clerk provides; wait until verification succeeds.
+3. Under **API keys**, copy the live `sk_live_…` and `pk_live_…` keys into `fly secrets set` (step 3).
+4. Mirror the development auth configuration:
+   - **Email** one-time passcode sign-in enabled
+   - **Passwords** disabled
+   - **Sign-up restrictions** / allowlist so only your account can sign in (single-user app)
+
+### 5. Deploy
+
+```bash
+fly deploy
+```
+
+Health checks hit `GET /sign-in` (returns 200; unauthenticated `/` redirects and is unsuitable). Confirm with `fly status` and `fly logs`.
+
+### Local Docker smoke test
+
+```bash
+docker build -t finanz .
+docker run --rm -p 3000:3000 \
+  -e PLAID_CLIENT_ID=... -e PLAID_SECRET=... -e PLAID_ENV=sandbox \
+  -e PLAID_PRODUCTS=transactions -e PLAID_COUNTRY_CODES=US \
+  -e PLAID_TRANSACTIONS_DAYS_REQUESTED=90 \
+  -e PLAID_TOKEN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e CLERK_SECRET_KEY=sk_test_... -e VITE_CLERK_PUBLISHABLE_KEY=pk_test_... \
+  finanz
+```
+
+Visit `http://localhost:3000/sign-in` to confirm the server boots and env validation passes.
+
 ## Design decisions
 
 - **No auth, single user by design** — a hardcoded user id is sent to Plaid.
