@@ -74,16 +74,20 @@ export async function loader(args: Route.LoaderArgs) {
     }),
   );
 
-  return { items: dashboardItems, isSandbox: env.PLAID_ENV === 'sandbox' };
+  return {
+    items: dashboardItems,
+    isSandbox: env.PLAID_ENV === 'sandbox',
+    today,
+  };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items, isSandbox } = loaderData;
+  const { items, isSandbox, today } = loaderData;
   const [searchParams, setSearchParams] = useSearchParams();
 
   const transactions = items.flatMap((item) => item.transactions);
 
-  const model = buildDashboardModel(transactions);
+  const model = buildDashboardModel(transactions, today);
 
   const selectedDatum = model.categoryData.find(
     (datum) => datum.key === searchParams.get('category'),

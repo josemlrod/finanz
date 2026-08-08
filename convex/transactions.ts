@@ -79,9 +79,10 @@ async function upsertTransaction(
 ) {
   const existing = await ctx.db
     .query("transactions")
-    .withIndex("by_transactionId", (q) => q.eq("transactionId", tx.transactionId))
-    .filter((q) => q.eq(q.field("userId"), convexUserId))
-    .first();
+    .withIndex("by_itemId_transactionId", (q) =>
+      q.eq("itemId", itemId).eq("transactionId", tx.transactionId),
+    )
+    .unique();
 
   const fields = {
     itemId,
@@ -112,14 +113,15 @@ async function upsertTransaction(
 
 async function removeTransaction(
   ctx: MutationCtx,
-  convexUserId: Awaited<ReturnType<typeof resolveUserId>>,
+  itemId: string,
   transactionId: string,
 ) {
   const existing = await ctx.db
     .query("transactions")
-    .withIndex("by_transactionId", (q) => q.eq("transactionId", transactionId))
-    .filter((q) => q.eq(q.field("userId"), convexUserId))
-    .first();
+    .withIndex("by_itemId_transactionId", (q) =>
+      q.eq("itemId", itemId).eq("transactionId", transactionId),
+    )
+    .unique();
 
   if (existing) {
     await ctx.db.delete(existing._id);
@@ -151,7 +153,7 @@ export const applySync = mutation({
     }
 
     for (const transactionId of diff.removed) {
-      await removeTransaction(ctx, convexUserId, transactionId);
+      await removeTransaction(ctx, itemId, transactionId);
     }
   },
 });

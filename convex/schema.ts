@@ -45,7 +45,7 @@ export default defineSchema({
   })
     .index("by_userId_date", ["userId", "date"])
     .index("by_itemId", ["itemId"])
-    .index("by_transactionId", ["transactionId"]),
+    .index("by_itemId_transactionId", ["itemId", "transactionId"]),
 
   accounts: defineTable({
     userId: v.id("users"),

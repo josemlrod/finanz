@@ -164,6 +164,77 @@ describe("transactions", () => {
     expect(transactions[0]?.pending).toBe(false);
   });
 
+  test("scopes transaction identity to an item", async () => {
+    process.env.CONVEX_INTERNAL_SECRET = secret;
+    const t = convexTest(schema, modules);
+    await seedItem(t, firstUserId);
+    const secondItemId = "item-second";
+    await t.mutation(api.items.save, {
+      userId: firstUserId,
+      secret,
+      item: makeItem(secondItemId),
+    });
+
+    const firstTransaction = makeTransaction({ amount: 10 });
+    const secondTransaction = makeTransaction({
+      itemId: secondItemId,
+      amount: 20,
+    });
+
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId,
+      diff: { added: [firstTransaction], modified: [], removed: [] },
+    });
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId: secondItemId,
+      diff: { added: [secondTransaction], modified: [], removed: [] },
+    });
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId,
+      diff: {
+        added: [],
+        modified: [makeTransaction({ amount: 15 })],
+        removed: [],
+      },
+    });
+
+    expect(
+      await t.query(api.transactions.list, {
+        userId: firstUserId,
+        secret,
+        itemId: secondItemId,
+      }),
+    ).toEqual([secondTransaction]);
+
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId,
+      diff: { added: [], modified: [], removed: ["tx_1"] },
+    });
+
+    expect(
+      await t.query(api.transactions.list, {
+        userId: firstUserId,
+        secret,
+        itemId,
+      }),
+    ).toEqual([]);
+    expect(
+      await t.query(api.transactions.list, {
+        userId: firstUserId,
+        secret,
+        itemId: secondItemId,
+      }),
+    ).toEqual([secondTransaction]);
+  });
+
   test("list filters by date range using the by_userId_date index", async () => {
     process.env.CONVEX_INTERNAL_SECRET = secret;
     const t = convexTest(schema, modules);
