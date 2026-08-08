@@ -5,6 +5,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
+    "convex:dev": "convex dev",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
     "test": "bun test"
@@ -18,6 +19,7 @@
     "@react-router/serve": "^8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "convex": "^1.43.0",
     "isbot": "^5.1.36",
     "lucide-react": "^1.27.0",
     "plaid": "45.0.0",

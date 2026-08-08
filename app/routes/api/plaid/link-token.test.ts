@@ -11,6 +11,10 @@ mock.module("~/lib/plaid/wiring.server", () => ({
   getPlaidService: () => ({ createLinkToken }),
 }));
 
+mock.module("~/lib/convex.server", () => ({
+  upsertUser: mock(async () => {}),
+}));
+
 describe("POST /api/plaid/link-token", () => {
   test("forwards the authenticated Clerk userId to Plaid", async () => {
     const { action } = await import("./link-token");

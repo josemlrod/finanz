@@ -14,6 +14,10 @@ beforeAll(async () => {
   process.env.PLAID_COUNTRY_CODES = "US";
   process.env.PLAID_TRANSACTIONS_DAYS_REQUESTED = "90";
   process.env.PLAID_TOKEN_ENCRYPTION_KEY = TEST_KEY;
+  process.env.CLERK_SECRET_KEY = "test-clerk-secret";
+  process.env.VITE_CLERK_PUBLISHABLE_KEY = "test-clerk-publishable";
+  process.env.CONVEX_URL = "https://example.convex.cloud";
+  process.env.CONVEX_INTERNAL_SECRET = "test-convex-secret";
 
   const crypto = await import("./crypto.server");
   encrypt = crypto.encrypt;
