@@ -16,6 +16,8 @@ function makeItem(itemId: string): PlaidItem {
   };
 }
 
+const userId = "user_test";
+
 describe("createFileItemStore", () => {
   let tempDir: string;
 
@@ -35,10 +37,41 @@ describe("createFileItemStore", () => {
 
     await Promise.all(
       items.map((item, index) =>
-        (index % 2 === 0 ? firstStore : secondStore).save(item),
+        (index % 2 === 0 ? firstStore : secondStore).save(userId, item),
       ),
     );
 
-    expect(await firstStore.list()).toHaveLength(items.length);
+    expect(await firstStore.list(userId)).toHaveLength(items.length);
+  });
+
+  test("isolates Items with the same ID between users", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "finanz-item-store-"));
+    const store = createFileItemStore(tempDir);
+    const firstUserId = "user_first";
+    const secondUserId = "user_second";
+    const firstItem = {
+      ...makeItem("item_shared"),
+      institutionName: "First User Bank",
+    };
+    const secondItem = {
+      ...makeItem("item_shared"),
+      institutionName: "Second User Bank",
+    };
+
+    await store.save(firstUserId, firstItem);
+    await store.save(secondUserId, secondItem);
+
+    expect(await store.list(firstUserId)).toEqual([firstItem]);
+    expect(await store.list(secondUserId)).toEqual([secondItem]);
+
+    await store.setCursor(firstUserId, firstItem.itemId, "first-cursor");
+    expect((await store.get(firstUserId, firstItem.itemId))?.cursor).toBe(
+      "first-cursor",
+    );
+    expect((await store.get(secondUserId, secondItem.itemId))?.cursor).toBeNull();
+
+    await store.remove(firstUserId, firstItem.itemId);
+    expect(await store.get(firstUserId, firstItem.itemId)).toBeNull();
+    expect(await store.get(secondUserId, secondItem.itemId)).toEqual(secondItem);
   });
 });

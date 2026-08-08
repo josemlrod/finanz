@@ -9,6 +9,7 @@ import {
 } from "./transaction-store.server";
 
 const itemId = "item_test";
+const userId = "user_test";
 
 function makeTransaction(
   overrides: Partial<Transaction> & Pick<Transaction, "transactionId">,
@@ -94,13 +95,13 @@ describe("createFileTransactionStore", () => {
     const store = await createStore();
     const transaction = makeTransaction({ transactionId: "tx_1" });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [transaction],
       modified: [],
       removed: [],
     });
 
-    const transactions = await store.list(itemId);
+    const transactions = await store.list(userId, itemId);
     expect(transactions).toHaveLength(1);
     expect(transactions[0]).toEqual(transaction);
   });
@@ -113,7 +114,7 @@ describe("createFileTransactionStore", () => {
       pending: true,
     });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [original],
       modified: [],
       removed: [],
@@ -125,13 +126,13 @@ describe("createFileTransactionStore", () => {
       pending: false,
     });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [],
       modified: [updated],
       removed: [],
     });
 
-    const transactions = await store.list(itemId);
+    const transactions = await store.list(userId, itemId);
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.amount).toBe(12.5);
     expect(transactions[0]?.pending).toBe(false);
@@ -142,19 +143,19 @@ describe("createFileTransactionStore", () => {
     const keep = makeTransaction({ transactionId: "tx_keep" });
     const remove = makeTransaction({ transactionId: "tx_remove" });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [keep, remove],
       modified: [],
       removed: [],
     });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [],
       modified: [],
       removed: ["tx_remove"],
     });
 
-    const transactions = await store.list(itemId);
+    const transactions = await store.list(userId, itemId);
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.transactionId).toBe("tx_keep");
   });
@@ -162,7 +163,7 @@ describe("createFileTransactionStore", () => {
   test("list returns [] for an unknown item", async () => {
     const store = await createStore();
 
-    expect(await store.list("unknown_item")).toEqual([]);
+    expect(await store.list(userId, "unknown_item")).toEqual([]);
   });
 
   test("list returns transactions sorted by date descending", async () => {
@@ -176,13 +177,13 @@ describe("createFileTransactionStore", () => {
       date: "2026-07-15",
     });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [older, newer],
       modified: [],
       removed: [],
     });
 
-    const transactions = await store.list(itemId);
+    const transactions = await store.list(userId, itemId);
     expect(transactions.map((tx) => tx.transactionId)).toEqual([
       "tx_new",
       "tx_old",
@@ -196,7 +197,7 @@ describe("createFileTransactionStore", () => {
       pending: true,
     });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [pending],
       modified: [],
       removed: [],
@@ -207,13 +208,13 @@ describe("createFileTransactionStore", () => {
       pending: false,
     });
 
-    await store.applySync(itemId, {
+    await store.applySync(userId, itemId, {
       added: [posted],
       modified: [],
       removed: ["tx_pending"],
     });
 
-    const transactions = await store.list(itemId);
+    const transactions = await store.list(userId, itemId);
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.transactionId).toBe("tx_posted");
     expect(transactions[0]?.pending).toBe(false);
@@ -229,7 +230,7 @@ describe("createFileTransactionStore", () => {
 
     await Promise.all(
       transactions.map((transaction, index) =>
-        (index % 2 === 0 ? firstStore : secondStore).applySync(itemId, {
+        (index % 2 === 0 ? firstStore : secondStore).applySync(userId, itemId, {
           added: [transaction],
           modified: [],
           removed: [],
@@ -237,6 +238,53 @@ describe("createFileTransactionStore", () => {
       ),
     );
 
-    expect(await firstStore.list(itemId)).toHaveLength(transactions.length);
+    expect(await firstStore.list(userId, itemId)).toHaveLength(transactions.length);
+  });
+
+  test("isolates Transactions with the same IDs between users", async () => {
+    const store = await createStore();
+    const firstUserId = "user_first";
+    const secondUserId = "user_second";
+    const firstTransaction = makeTransaction({
+      transactionId: "tx_shared",
+      amount: 10,
+    });
+    const secondTransaction = makeTransaction({
+      transactionId: "tx_shared",
+      amount: 20,
+    });
+
+    await store.applySync(firstUserId, itemId, {
+      added: [firstTransaction],
+      modified: [],
+      removed: [],
+    });
+    await store.applySync(secondUserId, itemId, {
+      added: [secondTransaction],
+      modified: [],
+      removed: [],
+    });
+
+    expect(await store.list(firstUserId, itemId)).toEqual([firstTransaction]);
+    expect(await store.list(secondUserId, itemId)).toEqual([secondTransaction]);
+
+    const modifiedFirstTransaction = { ...firstTransaction, amount: 15 };
+    await store.applySync(firstUserId, itemId, {
+      added: [],
+      modified: [modifiedFirstTransaction],
+      removed: [],
+    });
+    expect(await store.list(firstUserId, itemId)).toEqual([
+      modifiedFirstTransaction,
+    ]);
+    expect(await store.list(secondUserId, itemId)).toEqual([secondTransaction]);
+
+    await store.applySync(firstUserId, itemId, {
+      added: [],
+      modified: [],
+      removed: [firstTransaction.transactionId],
+    });
+    expect(await store.list(firstUserId, itemId)).toEqual([]);
+    expect(await store.list(secondUserId, itemId)).toEqual([secondTransaction]);
   });
 });

@@ -5,7 +5,7 @@ import { requireApiAuth } from "~/lib/auth.server";
 import { getPlaidService } from "~/lib/plaid/wiring.server";
 
 export async function action(args: Route.ActionArgs) {
-  await requireApiAuth(args);
+  const { userId } = await requireApiAuth(args);
 
   const formData = await args.request.formData();
   const itemId = formData.get("itemId");
@@ -15,7 +15,7 @@ export async function action(args: Route.ActionArgs) {
   }
 
   try {
-    const accounts = await getPlaidService().refreshBalances(itemId);
+    const accounts = await getPlaidService().refreshBalances(userId, itemId);
     return data({ accounts });
   } catch (error) {
     const plaidError = normalizePlaidError(error);

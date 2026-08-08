@@ -29,22 +29,30 @@ beforeAll(async () => {
   ({ createPlaidService } = await import("./service.server"));
 });
 
+const userId = "user_test";
+
 function createItemStore(item: PlaidItem, events: string[] = []): ItemStore {
   return {
-    async save(nextItem) {
+    async save(receivedUserId, nextItem) {
+      expect(receivedUserId).toBe(userId);
       item = nextItem;
     },
-    async list() {
+    async list(receivedUserId) {
+      expect(receivedUserId).toBe(userId);
       return [{ ...item }];
     },
-    async get(itemId) {
+    async get(receivedUserId, itemId) {
+      expect(receivedUserId).toBe(userId);
       return item.itemId === itemId ? { ...item } : null;
     },
-    async setCursor(_itemId, cursor) {
+    async setCursor(receivedUserId, _itemId, cursor) {
+      expect(receivedUserId).toBe(userId);
       events.push("cursor");
       item.cursor = cursor;
     },
-    async remove() {},
+    async remove(receivedUserId) {
+      expect(receivedUserId).toBe(userId);
+    },
   };
 }
 
@@ -101,7 +109,8 @@ describe("PlaidService.syncTransactions", () => {
     const events: string[] = [];
     const itemStore = createItemStore(makeItem(), events);
     const transactionStore: TransactionStore = {
-      async applySync() {
+      async applySync(receivedUserId) {
+        expect(receivedUserId).toBe(userId);
         events.push("diff");
         throw new Error("write failed");
       },
@@ -116,17 +125,19 @@ describe("PlaidService.syncTransactions", () => {
     } as unknown as PlaidApi;
     const service = createPlaidService(itemStore, transactionStore, client);
 
-    await expect(service.syncTransactions("item-1")).rejects.toThrow(
+    await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
       "write failed",
     );
     expect(events).toEqual(["diff"]);
-    expect((await itemStore.get("item-1"))?.cursor).toBe("cursor-0");
+    expect((await itemStore.get(userId, "item-1"))?.cursor).toBe("cursor-0");
   });
 
   test("serializes concurrent syncs for the same Item", async () => {
     const itemStore = createItemStore(makeItem());
     const transactionStore: TransactionStore = {
-      async applySync() {},
+      async applySync(receivedUserId) {
+        expect(receivedUserId).toBe(userId);
+      },
       async list() {
         return [];
       },
@@ -146,9 +157,9 @@ describe("PlaidService.syncTransactions", () => {
     } as unknown as PlaidApi;
     const service = createPlaidService(itemStore, transactionStore, client);
 
-    const firstSync = service.syncTransactions("item-1");
+    const firstSync = service.syncTransactions(userId, "item-1");
     await firstStarted.promise;
-    const secondSync = service.syncTransactions("item-1");
+    const secondSync = service.syncTransactions(userId, "item-1");
     await Promise.resolve();
 
     expect(requests).toHaveLength(1);
@@ -158,6 +169,6 @@ describe("PlaidService.syncTransactions", () => {
 
     expect(requests).toHaveLength(2);
     expect(requests[1]?.cursor).toBe("cursor-1");
-    expect((await itemStore.get("item-1"))?.cursor).toBe("cursor-2");
+    expect((await itemStore.get(userId, "item-1"))?.cursor).toBe("cursor-2");
   });
 });

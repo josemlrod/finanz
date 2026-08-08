@@ -6,7 +6,7 @@ import type { ItemStore, PlaidItem } from "~/lib/plaid/types";
 const withFileLock = createKeyedLock<string>();
 
 interface ItemsFile {
-  items: PlaidItem[];
+  byUser: Record<string, PlaidItem[]>;
 }
 
 async function readItemsFile(filePath: string): Promise<ItemsFile> {
@@ -19,7 +19,7 @@ async function readItemsFile(filePath: string): Promise<ItemsFile> {
       "code" in error &&
       (error as NodeJS.ErrnoException).code === "ENOENT"
     ) {
-      return { items: [] };
+      return { byUser: {} };
     }
     throw error;
   }
@@ -32,55 +32,65 @@ async function writeItemsFile(filePath: string, data: ItemsFile): Promise<void> 
   await rename(tmpPath, filePath);
 }
 
+function itemsForUser(data: ItemsFile, userId: string): PlaidItem[] {
+  return data.byUser[userId] ?? [];
+}
+
 export function createFileItemStore(dataDir = ".data"): ItemStore {
   const filePath = path.join(dataDir, "items.json");
 
   return {
-    async save(item) {
+    async save(userId, item) {
       await withFileLock(filePath, async () => {
         const data = await readItemsFile(filePath);
-        const index = data.items.findIndex(
+        const items = itemsForUser(data, userId);
+        const index = items.findIndex(
           (existing) => existing.itemId === item.itemId,
         );
         if (index >= 0) {
-          data.items[index] = item;
+          items[index] = item;
         } else {
-          data.items.push(item);
+          items.push(item);
         }
+        data.byUser[userId] = items;
         await writeItemsFile(filePath, data);
       });
     },
 
-    async list() {
+    async list(userId) {
       return withFileLock(filePath, async () => {
         const data = await readItemsFile(filePath);
-        return [...data.items];
+        return [...itemsForUser(data, userId)];
       });
     },
 
-    async get(itemId) {
+    async get(userId, itemId) {
       return withFileLock(filePath, async () => {
         const data = await readItemsFile(filePath);
-        return data.items.find((item) => item.itemId === itemId) ?? null;
+        return itemsForUser(data, userId).find((item) => item.itemId === itemId) ?? null;
       });
     },
 
-    async setCursor(itemId, cursor) {
+    async setCursor(userId, itemId, cursor) {
       await withFileLock(filePath, async () => {
         const data = await readItemsFile(filePath);
-        const item = data.items.find((existing) => existing.itemId === itemId);
+        const items = itemsForUser(data, userId);
+        const item = items.find((existing) => existing.itemId === itemId);
         if (!item) {
           throw new Error(`Item not found: ${itemId}`);
         }
         item.cursor = cursor;
+        data.byUser[userId] = items;
         await writeItemsFile(filePath, data);
       });
     },
 
-    async remove(itemId) {
+    async remove(userId, itemId) {
       await withFileLock(filePath, async () => {
         const data = await readItemsFile(filePath);
-        data.items = data.items.filter((item) => item.itemId !== itemId);
+        data.byUser[userId] = itemsForUser(data, userId).filter(
+          (item) => item.itemId !== itemId,
+        );
         await writeItemsFile(filePath, data);
       });
     },

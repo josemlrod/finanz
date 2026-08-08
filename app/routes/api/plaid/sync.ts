@@ -5,7 +5,7 @@ import { requireApiAuth } from "~/lib/auth.server";
 import { getPlaidService, getTransactionStore } from "~/lib/plaid/wiring.server";
 
 export async function action(args: Route.ActionArgs) {
-  await requireApiAuth(args);
+  const { userId } = await requireApiAuth(args);
 
   const formData = await args.request.formData();
   const itemId = formData.get("itemId");
@@ -16,8 +16,8 @@ export async function action(args: Route.ActionArgs) {
 
   try {
     const plaid = getPlaidService();
-    const result = await plaid.syncTransactions(itemId);
-    const transactions = await getTransactionStore().list(itemId);
+    const result = await plaid.syncTransactions(userId, itemId);
+    const transactions = await getTransactionStore().list(userId, itemId);
 
     return data({
       hasUpdates: result.hasUpdates,
