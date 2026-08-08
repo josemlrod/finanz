@@ -11,6 +11,7 @@
 import type * as items from "../items.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_users from "../lib/users.js";
+import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 
 import type {
@@ -23,6 +24,7 @@ declare const fullApi: ApiFromModules<{
   items: typeof items;
   "lib/auth": typeof lib_auth;
   "lib/users": typeof lib_users;
+  transactions: typeof transactions;
   users: typeof users;
 }>;
 
