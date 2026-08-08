@@ -15,6 +15,10 @@ import { MonthSummary } from '~/components/month-summary';
 import { SpendingAreaChart } from '~/components/spending-area-chart';
 import { buildDashboardModel } from '~/lib/dashboard';
 import { requirePageAuth } from '~/lib/auth.server';
+import {
+  currentDateString,
+  previousYearMonth,
+} from '~/lib/transactions';
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -30,9 +34,25 @@ export async function loader(args: Route.LoaderArgs) {
   const items = await getItemStore().list(userId);
   const transactionStore = getTransactionStore();
 
+  const today = currentDateString();
+  const month = today.slice(0, 7);
+  const startDate = `${previousYearMonth(month)}-01`;
+  const endDate = today;
+
+  const transactions = await transactionStore.list(userId, undefined, {
+    startDate,
+    endDate,
+  });
+  const transactionsByItem = new Map<string, typeof transactions>();
+  for (const transaction of transactions) {
+    const itemTransactions = transactionsByItem.get(transaction.itemId) ?? [];
+    itemTransactions.push(transaction);
+    transactionsByItem.set(transaction.itemId, itemTransactions);
+  }
+
   const dashboardItems: DashboardItemData[] = await Promise.all(
     items.map(async (item) => {
-      const transactions = await transactionStore.list(userId, item.itemId);
+      const itemTransactions = transactionsByItem.get(item.itemId) ?? [];
       const { accounts, health } = await plaid.getAccountsSnapshot(
         userId,
         item.itemId,
@@ -44,10 +64,10 @@ export async function loader(args: Route.LoaderArgs) {
         institutionName: item.institutionName,
         createdAt: item.createdAt,
         accounts,
-        transactions,
+        transactions: itemTransactions,
         health,
         status:
-          transactions.length > 0
+          item.cursor !== null || itemTransactions.length > 0
             ? ('populated' as const)
             : ('loading' as const),
       };

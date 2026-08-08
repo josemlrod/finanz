@@ -63,15 +63,31 @@ export function createFileTransactionStore(dataDir = ".data"): TransactionStore 
       });
     },
 
-    async list(userId, itemId) {
+    async list(userId, itemId, options) {
       return withFileLock(filePath, async () => {
         const data = await readTransactionsFile(filePath);
-        const bucket = bucketForItem(data, userId, itemId);
-        if (Object.keys(bucket).length === 0) {
+        const userBuckets = data.byUser[userId] ?? {};
+        const buckets = itemId
+          ? { [itemId]: bucketForItem(data, userId, itemId) }
+          : userBuckets;
+
+        let transactions = Object.values(buckets).flatMap((bucket) =>
+          Object.values(bucket),
+        );
+
+        if (options?.startDate !== undefined && options?.endDate !== undefined) {
+          transactions = transactions.filter(
+            (transaction) =>
+              transaction.date >= options.startDate! &&
+              transaction.date <= options.endDate!,
+          );
+        }
+
+        if (transactions.length === 0) {
           return [];
         }
 
-        return Object.values(bucket).sort((a, b) => b.date.localeCompare(a.date));
+        return transactions.sort((a, b) => b.date.localeCompare(a.date));
       });
     },
   };
