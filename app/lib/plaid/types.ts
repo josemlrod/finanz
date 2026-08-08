@@ -69,7 +69,16 @@ export interface ItemStore {
   remove(userId: string, itemId: string): Promise<void>;
 }
 
+export interface TransactionListOptions {
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface TransactionStore {
   applySync(userId: string, itemId: string, diff: SyncDiff): Promise<void>;
-  list(userId: string, itemId: string): Promise<Transaction[]>;
+  list(
+    userId: string,
+    itemId?: string,
+    options?: TransactionListOptions,
+  ): Promise<Transaction[]>;
 }
