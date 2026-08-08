@@ -1,4 +1,4 @@
-import { createFileItemStore } from "~/lib/plaid/item-store.server";
+import { createConvexItemStore } from "~/lib/plaid/convex-item-store.server";
 import { createPlaidService, type PlaidService } from "~/lib/plaid/service.server";
 import { createFileTransactionStore } from "~/lib/plaid/transaction-store.server";
 import type { ItemStore, TransactionStore } from "~/lib/plaid/types";
@@ -8,7 +8,7 @@ let transactionStore: TransactionStore | null = null;
 let plaidService: PlaidService | null = null;
 
 function getStores(): { itemStore: ItemStore; transactionStore: TransactionStore } {
-  itemStore ??= createFileItemStore();
+  itemStore ??= createConvexItemStore();
   transactionStore ??= createFileTransactionStore();
   return { itemStore, transactionStore };
 }
