@@ -12,12 +12,7 @@ interface ItemsFile {
 async function readItemsFile(filePath: string): Promise<ItemsFile> {
   try {
     const raw = await readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as ItemsFile | { items: PlaidItem[] };
-    if ("byUser" in parsed) {
-      return parsed;
-    }
-    // Legacy single-user format — treat as unscoped data (not returned for any user).
-    return { byUser: {} };
+    return JSON.parse(raw) as ItemsFile;
   } catch (error) {
     if (
       error instanceof Error &&

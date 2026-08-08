@@ -18,14 +18,7 @@ async function readTransactionsFile(
 ): Promise<TransactionsFile> {
   try {
     const raw = await readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as
-      | TransactionsFile
-      | { byItem: Record<string, Record<string, Transaction>> };
-    if ("byUser" in parsed) {
-      return parsed;
-    }
-    // Legacy single-user format — treat as unscoped data (not returned for any user).
-    return { byUser: {} };
+    return JSON.parse(raw) as TransactionsFile;
   } catch (error) {
     if (
       error instanceof Error &&

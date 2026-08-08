@@ -240,4 +240,51 @@ describe("createFileTransactionStore", () => {
 
     expect(await firstStore.list(userId, itemId)).toHaveLength(transactions.length);
   });
+
+  test("isolates Transactions with the same IDs between users", async () => {
+    const store = await createStore();
+    const firstUserId = "user_first";
+    const secondUserId = "user_second";
+    const firstTransaction = makeTransaction({
+      transactionId: "tx_shared",
+      amount: 10,
+    });
+    const secondTransaction = makeTransaction({
+      transactionId: "tx_shared",
+      amount: 20,
+    });
+
+    await store.applySync(firstUserId, itemId, {
+      added: [firstTransaction],
+      modified: [],
+      removed: [],
+    });
+    await store.applySync(secondUserId, itemId, {
+      added: [secondTransaction],
+      modified: [],
+      removed: [],
+    });
+
+    expect(await store.list(firstUserId, itemId)).toEqual([firstTransaction]);
+    expect(await store.list(secondUserId, itemId)).toEqual([secondTransaction]);
+
+    const modifiedFirstTransaction = { ...firstTransaction, amount: 15 };
+    await store.applySync(firstUserId, itemId, {
+      added: [],
+      modified: [modifiedFirstTransaction],
+      removed: [],
+    });
+    expect(await store.list(firstUserId, itemId)).toEqual([
+      modifiedFirstTransaction,
+    ]);
+    expect(await store.list(secondUserId, itemId)).toEqual([secondTransaction]);
+
+    await store.applySync(firstUserId, itemId, {
+      added: [],
+      modified: [],
+      removed: [firstTransaction.transactionId],
+    });
+    expect(await store.list(firstUserId, itemId)).toEqual([]);
+    expect(await store.list(secondUserId, itemId)).toEqual([secondTransaction]);
+  });
 });
