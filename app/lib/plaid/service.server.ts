@@ -20,8 +20,6 @@ import type {
   TransactionStore,
 } from "~/lib/plaid/types";
 
-const DEFAULT_USER_ID = "default-user";
-/** Plaid Sandbox returning-user seed number — OTP is always 123456. */
 const DEFAULT_SANDBOX_LINK_PHONE = "+14155550010";
 const withItemSyncLock = createKeyedLock<string>();
 
@@ -41,7 +39,7 @@ export interface SyncTransactionsOptions {
 }
 
 export interface CreateLinkTokenOptions {
-  userId?: string;
+  userId: string;
   /**
    * Set to put Link in update mode for an existing Item, which repairs the
    * saved access token in place instead of creating a new (billable) Item.
@@ -61,8 +59,8 @@ export class PlaidService {
     private readonly client: PlaidApi = getPlaidClient(),
   ) {}
 
-  async createLinkToken(options: CreateLinkTokenOptions = {}): Promise<string> {
-    const { userId = DEFAULT_USER_ID, itemId } = options;
+  async createLinkToken(options: CreateLinkTokenOptions): Promise<string> {
+    const { userId, itemId } = options;
 
     const request: LinkTokenCreateRequest = {
       client_name: "Finanz",
@@ -83,7 +81,7 @@ export class PlaidService {
 
     if (itemId) {
       // Update mode rejects `products`; the Item's existing products are reused.
-      request.access_token = await this.getDecryptedAccessToken(itemId);
+      request.access_token = await this.getDecryptedAccessToken(userId, itemId);
     } else {
       request.products = env.PLAID_PRODUCTS;
       request.transactions = {
@@ -96,17 +94,19 @@ export class PlaidService {
   }
 
   async findItemByInstitution(
+    userId: string,
     institutionId: string,
   ): Promise<PlaidItem | null> {
     if (!institutionId) {
       return null;
     }
 
-    const items = await this.itemStore.list();
+    const items = await this.itemStore.list(userId);
     return items.find((item) => item.institutionId === institutionId) ?? null;
   }
 
   async exchangePublicToken(
+    userId: string,
     publicToken: string,
     metadata: ExchangeMetadata,
   ): Promise<PlaidItem> {
@@ -123,12 +123,12 @@ export class PlaidService {
       createdAt: new Date().toISOString(),
     };
 
-    await this.itemStore.save(item);
+    await this.itemStore.save(userId, item);
     return item;
   }
 
-  async getAccounts(itemId: string): Promise<LinkedAccount[]> {
-    const accessToken = await this.getDecryptedAccessToken(itemId);
+  async getAccounts(userId: string, itemId: string): Promise<LinkedAccount[]> {
+    const accessToken = await this.getDecryptedAccessToken(userId, itemId);
     const response = await this.client.accountsGet({ access_token: accessToken });
     return response.data.accounts.map((account) =>
       mapAccount(account, itemId),
@@ -139,16 +139,22 @@ export class PlaidService {
    * Like `getAccounts`, but converts Item-level failures into a health status
    * instead of throwing, so one broken bank cannot blank the dashboard.
    */
-  async getAccountsSnapshot(itemId: string): Promise<AccountsSnapshot> {
+  async getAccountsSnapshot(
+    userId: string,
+    itemId: string,
+  ): Promise<AccountsSnapshot> {
     try {
-      return { accounts: await this.getAccounts(itemId), health: HEALTHY_ITEM };
+      return {
+        accounts: await this.getAccounts(userId, itemId),
+        health: HEALTHY_ITEM,
+      };
     } catch (error) {
       return { accounts: [], health: toItemHealth(error) };
     }
   }
 
-  async refreshBalances(itemId: string): Promise<LinkedAccount[]> {
-    const accessToken = await this.getDecryptedAccessToken(itemId);
+  async refreshBalances(userId: string, itemId: string): Promise<LinkedAccount[]> {
+    const accessToken = await this.getDecryptedAccessToken(userId, itemId);
     const response = await this.client.accountsBalanceGet({
       access_token: accessToken,
     });
@@ -158,19 +164,21 @@ export class PlaidService {
   }
 
   async syncTransactions(
+    userId: string,
     itemId: string,
     options: SyncTransactionsOptions = {},
   ): Promise<SyncTransactionsResult> {
     return withItemSyncLock(itemId, () =>
-      this.runSyncTransactions(itemId, options),
+      this.runSyncTransactions(userId, itemId, options),
     );
   }
 
   private async runSyncTransactions(
+    userId: string,
     itemId: string,
     options: SyncTransactionsOptions,
   ): Promise<SyncTransactionsResult> {
-    const item = await this.itemStore.get(itemId);
+    const item = await this.itemStore.get(userId, itemId);
     if (!item) {
       throw new Error(`Item not found: ${itemId}`);
     }
@@ -211,18 +219,21 @@ export class PlaidService {
     const { diff, finalCursor } = result;
 
     if (hasDiffChanges(diff)) {
-      await this.transactionStore.applySync(itemId, diff);
+      await this.transactionStore.applySync(userId, itemId, diff);
     }
 
     if (finalCursor) {
-      await this.itemStore.setCursor(itemId, finalCursor);
+      await this.itemStore.setCursor(userId, itemId, finalCursor);
     }
 
     return { diff, hasUpdates: hasDiffChanges(diff) };
   }
 
-  private async getDecryptedAccessToken(itemId: string): Promise<string> {
-    const item = await this.itemStore.get(itemId);
+  private async getDecryptedAccessToken(
+    userId: string,
+    itemId: string,
+  ): Promise<string> {
+    const item = await this.itemStore.get(userId, itemId);
     if (!item) {
       throw new Error(`Item not found: ${itemId}`);
     }

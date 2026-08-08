@@ -29,18 +29,20 @@ beforeAll(async () => {
   ({ createPlaidService } = await import("./service.server"));
 });
 
+const userId = "user_test";
+
 function createItemStore(item: PlaidItem, events: string[] = []): ItemStore {
   return {
-    async save(nextItem) {
+    async save(_userId, nextItem) {
       item = nextItem;
     },
-    async list() {
+    async list(_userId) {
       return [{ ...item }];
     },
-    async get(itemId) {
+    async get(_userId, itemId) {
       return item.itemId === itemId ? { ...item } : null;
     },
-    async setCursor(_itemId, cursor) {
+    async setCursor(_userId, _itemId, cursor) {
       events.push("cursor");
       item.cursor = cursor;
     },
@@ -116,11 +118,11 @@ describe("PlaidService.syncTransactions", () => {
     } as unknown as PlaidApi;
     const service = createPlaidService(itemStore, transactionStore, client);
 
-    await expect(service.syncTransactions("item-1")).rejects.toThrow(
+    await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
       "write failed",
     );
     expect(events).toEqual(["diff"]);
-    expect((await itemStore.get("item-1"))?.cursor).toBe("cursor-0");
+    expect((await itemStore.get(userId, "item-1"))?.cursor).toBe("cursor-0");
   });
 
   test("serializes concurrent syncs for the same Item", async () => {
@@ -146,9 +148,9 @@ describe("PlaidService.syncTransactions", () => {
     } as unknown as PlaidApi;
     const service = createPlaidService(itemStore, transactionStore, client);
 
-    const firstSync = service.syncTransactions("item-1");
+    const firstSync = service.syncTransactions(userId, "item-1");
     await firstStarted.promise;
-    const secondSync = service.syncTransactions("item-1");
+    const secondSync = service.syncTransactions(userId, "item-1");
     await Promise.resolve();
 
     expect(requests).toHaveLength(1);
@@ -158,6 +160,6 @@ describe("PlaidService.syncTransactions", () => {
 
     expect(requests).toHaveLength(2);
     expect(requests[1]?.cursor).toBe("cursor-1");
-    expect((await itemStore.get("item-1"))?.cursor).toBe("cursor-2");
+    expect((await itemStore.get(userId, "item-1"))?.cursor).toBe("cursor-2");
   });
 });

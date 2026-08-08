@@ -62,14 +62,14 @@ export interface SyncDiff {
 }
 
 export interface ItemStore {
-  save(item: PlaidItem): Promise<void>;
-  list(): Promise<PlaidItem[]>;
-  get(itemId: string): Promise<PlaidItem | null>;
-  setCursor(itemId: string, cursor: string): Promise<void>;
-  remove(itemId: string): Promise<void>;
+  save(userId: string, item: PlaidItem): Promise<void>;
+  list(userId: string): Promise<PlaidItem[]>;
+  get(userId: string, itemId: string): Promise<PlaidItem | null>;
+  setCursor(userId: string, itemId: string, cursor: string): Promise<void>;
+  remove(userId: string, itemId: string): Promise<void>;
 }
 
 export interface TransactionStore {
-  applySync(itemId: string, diff: SyncDiff): Promise<void>;
-  list(itemId: string): Promise<Transaction[]>;
+  applySync(userId: string, itemId: string, diff: SyncDiff): Promise<void>;
+  list(userId: string, itemId: string): Promise<Transaction[]>;
 }

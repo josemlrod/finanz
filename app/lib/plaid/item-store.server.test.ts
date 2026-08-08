@@ -16,6 +16,8 @@ function makeItem(itemId: string): PlaidItem {
   };
 }
 
+const userId = "user_test";
+
 describe("createFileItemStore", () => {
   let tempDir: string;
 
@@ -35,10 +37,10 @@ describe("createFileItemStore", () => {
 
     await Promise.all(
       items.map((item, index) =>
-        (index % 2 === 0 ? firstStore : secondStore).save(item),
+        (index % 2 === 0 ? firstStore : secondStore).save(userId, item),
       ),
     );
 
-    expect(await firstStore.list()).toHaveLength(items.length);
+    expect(await firstStore.list(userId)).toHaveLength(items.length);
   });
 });

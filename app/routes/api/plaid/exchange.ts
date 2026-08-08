@@ -5,7 +5,7 @@ import { requireApiAuth } from "~/lib/auth.server";
 import { getPlaidService } from "~/lib/plaid/wiring.server";
 
 export async function action(args: Route.ActionArgs) {
-  await requireApiAuth(args);
+  const { userId } = await requireApiAuth(args);
 
   const formData = await args.request.formData();
   const publicToken = formData.get("public_token");
@@ -22,7 +22,7 @@ export async function action(args: Route.ActionArgs) {
     // Exchanging burns an Item slot permanently — /item/remove does not free one
     // on the Trial plan — so refuse a bank that is already linked.
     if (typeof institutionId === "string" && institutionId.length > 0) {
-      const existing = await plaid.findItemByInstitution(institutionId);
+      const existing = await plaid.findItemByInstitution(userId, institutionId);
       if (existing) {
         return data(
           {
@@ -33,14 +33,14 @@ export async function action(args: Route.ActionArgs) {
       }
     }
 
-    const item = await plaid.exchangePublicToken(publicToken, {
+    const item = await plaid.exchangePublicToken(userId, publicToken, {
       institutionId: typeof institutionId === "string" ? institutionId : "",
       institutionName:
         typeof institutionName === "string" ? institutionName : "Unknown bank",
     });
 
     try {
-      await plaid.syncTransactions(item.itemId, { prime: true });
+      await plaid.syncTransactions(userId, item.itemId, { prime: true });
     } catch {
       // The Item is linked; the dashboard's auto-sync can retry the backfill.
     }

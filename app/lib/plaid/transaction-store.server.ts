@@ -10,7 +10,7 @@ import type {
 const withFileLock = createKeyedLock<string>();
 
 interface TransactionsFile {
-  byItem: Record<string, Record<string, Transaction>>;
+  byUser: Record<string, Record<string, Record<string, Transaction>>>;
 }
 
 async function readTransactionsFile(
@@ -18,14 +18,21 @@ async function readTransactionsFile(
 ): Promise<TransactionsFile> {
   try {
     const raw = await readFile(filePath, "utf8");
-    return JSON.parse(raw) as TransactionsFile;
+    const parsed = JSON.parse(raw) as
+      | TransactionsFile
+      | { byItem: Record<string, Record<string, Transaction>> };
+    if ("byUser" in parsed) {
+      return parsed;
+    }
+    // Legacy single-user format — treat as unscoped data (not returned for any user).
+    return { byUser: {} };
   } catch (error) {
     if (
       error instanceof Error &&
       "code" in error &&
       (error as NodeJS.ErrnoException).code === "ENOENT"
     ) {
-      return { byItem: {} };
+      return { byUser: {} };
     }
     throw error;
   }
@@ -41,23 +48,33 @@ async function writeTransactionsFile(
   await rename(tmpPath, filePath);
 }
 
+function bucketForItem(
+  data: TransactionsFile,
+  userId: string,
+  itemId: string,
+): Record<string, Transaction> {
+  return data.byUser[userId]?.[itemId] ?? {};
+}
+
 export function createFileTransactionStore(dataDir = ".data"): TransactionStore {
   const filePath = path.join(dataDir, "transactions.json");
 
   return {
-    async applySync(itemId, diff) {
+    async applySync(userId, itemId, diff) {
       await withFileLock(filePath, async () => {
         const data = await readTransactionsFile(filePath);
-        data.byItem[itemId] = applySyncDiff(data.byItem[itemId] ?? {}, diff);
+        const userBuckets = data.byUser[userId] ?? {};
+        userBuckets[itemId] = applySyncDiff(bucketForItem(data, userId, itemId), diff);
+        data.byUser[userId] = userBuckets;
         await writeTransactionsFile(filePath, data);
       });
     },
 
-    async list(itemId) {
+    async list(userId, itemId) {
       return withFileLock(filePath, async () => {
         const data = await readTransactionsFile(filePath);
-        const bucket = data.byItem[itemId];
-        if (!bucket) {
+        const bucket = bucketForItem(data, userId, itemId);
+        if (Object.keys(bucket).length === 0) {
           return [];
         }
 

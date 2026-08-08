@@ -24,16 +24,19 @@ export function meta(_args: Route.MetaArgs) {
 }
 
 export async function loader(args: Route.LoaderArgs) {
-  await requirePageAuth(args);
+  const { userId } = await requirePageAuth(args);
 
   const plaid = getPlaidService();
-  const items = await getItemStore().list();
+  const items = await getItemStore().list(userId);
   const transactionStore = getTransactionStore();
 
   const dashboardItems: DashboardItemData[] = await Promise.all(
     items.map(async (item) => {
-      const transactions = await transactionStore.list(item.itemId);
-      const { accounts, health } = await plaid.getAccountsSnapshot(item.itemId);
+      const transactions = await transactionStore.list(userId, item.itemId);
+      const { accounts, health } = await plaid.getAccountsSnapshot(
+        userId,
+        item.itemId,
+      );
 
       return {
         itemId: item.itemId,
