@@ -85,6 +85,20 @@ export function createFileItemStore(dataDir = ".data"): ItemStore {
       });
     },
 
+    async setHealth(userId, itemId, health) {
+      await withFileLock(filePath, async () => {
+        const data = await readItemsFile(filePath);
+        const items = itemsForUser(data, userId);
+        const item = items.find((existing) => existing.itemId === itemId);
+        if (!item) {
+          throw new Error(`Item not found: ${itemId}`);
+        }
+        item.health = health;
+        data.byUser[userId] = items;
+        await writeItemsFile(filePath, data);
+      });
+    },
+
     async remove(userId, itemId) {
       await withFileLock(filePath, async () => {
         const data = await readItemsFile(filePath);

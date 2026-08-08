@@ -4,8 +4,8 @@ import type { Route } from './+types/home';
 import { PlaidLinkButton } from '~/components/plaid-link';
 import { type DashboardItemData } from '~/components/dashboard/item-panel';
 import {
+  getAccountStore,
   getItemStore,
-  getPlaidService,
   getTransactionStore,
 } from '~/lib/plaid/wiring.server';
 import { env } from '~/lib/env.server';
@@ -30,9 +30,16 @@ export function meta(_args: Route.MetaArgs) {
 export async function loader(args: Route.LoaderArgs) {
   const { userId } = await requirePageAuth(args);
 
-  const plaid = getPlaidService();
   const items = await getItemStore().list(userId);
+  const accounts = await getAccountStore().list(userId);
   const transactionStore = getTransactionStore();
+
+  const accountsByItem = new Map<string, typeof accounts>();
+  for (const account of accounts) {
+    const itemAccounts = accountsByItem.get(account.itemId) ?? [];
+    itemAccounts.push(account);
+    accountsByItem.set(account.itemId, itemAccounts);
+  }
 
   const today = currentDateString();
   const month = today.slice(0, 7);
@@ -50,29 +57,23 @@ export async function loader(args: Route.LoaderArgs) {
     transactionsByItem.set(transaction.itemId, itemTransactions);
   }
 
-  const dashboardItems: DashboardItemData[] = await Promise.all(
-    items.map(async (item) => {
-      const itemTransactions = transactionsByItem.get(item.itemId) ?? [];
-      const { accounts, health } = await plaid.getAccountsSnapshot(
-        userId,
-        item.itemId,
-      );
+  const dashboardItems: DashboardItemData[] = items.map((item) => {
+    const itemTransactions = transactionsByItem.get(item.itemId) ?? [];
 
-      return {
-        itemId: item.itemId,
-        institutionId: item.institutionId,
-        institutionName: item.institutionName,
-        createdAt: item.createdAt,
-        accounts,
-        transactions: itemTransactions,
-        health,
-        status:
-          item.cursor !== null || itemTransactions.length > 0
-            ? ('populated' as const)
-            : ('loading' as const),
-      };
-    }),
-  );
+    return {
+      itemId: item.itemId,
+      institutionId: item.institutionId,
+      institutionName: item.institutionName,
+      createdAt: item.createdAt,
+      accounts: accountsByItem.get(item.itemId) ?? [],
+      transactions: itemTransactions,
+      health: item.health,
+      status:
+        item.cursor !== null || itemTransactions.length > 0
+          ? ('populated' as const)
+          : ('loading' as const),
+    };
+  });
 
   return { items: dashboardItems, isSandbox: env.PLAID_ENV === 'sandbox' };
 }

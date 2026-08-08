@@ -33,6 +33,19 @@ export function createConvexItemStore(): ItemStore {
       });
     },
 
+    async setHealth(
+      userId: string,
+      itemId: string,
+      health: PlaidItem["health"],
+    ): Promise<void> {
+      await client.mutation(api.items.setHealth, {
+        userId,
+        secret,
+        itemId,
+        health,
+      });
+    },
+
     async remove(userId: string, itemId: string): Promise<void> {
       await client.mutation(api.items.remove, { userId, secret, itemId });
     },

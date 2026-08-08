@@ -21,6 +21,11 @@ function makeItem(itemId: string) {
     institutionName: `Institution ${itemId}`,
     cursor: null,
     createdAt: "2026-07-01T00:00:00.000Z",
+    health: {
+      state: "ok" as const,
+      errorCode: null,
+      message: null,
+    },
   };
 }
 
@@ -150,6 +155,42 @@ describe("items", () => {
         itemId: secondItem.itemId,
       }),
     ).toEqual(secondItem);
+  });
+
+  test("setHealth updates the stored item health", async () => {
+    process.env.CONVEX_INTERNAL_SECRET = secret;
+    const t = convexTest(schema, modules);
+    await upsertUser(t, firstUserId);
+
+    const item = makeItem("item-1");
+    await t.mutation(api.items.save, {
+      userId: firstUserId,
+      secret,
+      item,
+    });
+
+    const health = {
+      state: "reauth_required" as const,
+      errorCode: "ITEM_LOGIN_REQUIRED",
+      message: "Sign in again",
+    };
+    await t.mutation(api.items.setHealth, {
+      userId: firstUserId,
+      secret,
+      itemId: item.itemId,
+      health,
+    });
+
+    expect(
+      await t.query(api.items.get, {
+        userId: firstUserId,
+        secret,
+        itemId: item.itemId,
+      }),
+    ).toEqual({
+      ...item,
+      health,
+    });
   });
 
   test("setCursor throws when the item is missing", async () => {

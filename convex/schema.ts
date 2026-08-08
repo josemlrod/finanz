@@ -23,6 +23,16 @@ export default defineSchema({
     institutionName: v.string(),
     cursor: v.union(v.string(), v.null()),
     createdAt: v.string(),
+    healthState: v.optional(
+      v.union(
+        v.literal("ok"),
+        v.literal("reauth_required"),
+        v.literal("consent_expiring"),
+        v.literal("error"),
+      ),
+    ),
+    healthErrorCode: v.optional(v.union(v.string(), v.null())),
+    healthMessage: v.optional(v.union(v.string(), v.null())),
   })
     .index("by_userId", ["userId"])
     .index("by_itemId", ["itemId"]),

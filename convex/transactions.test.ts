@@ -23,6 +23,11 @@ function makeItem(itemIdValue: string) {
     institutionName: `Institution ${itemIdValue}`,
     cursor: null,
     createdAt: "2026-07-01T00:00:00.000Z",
+    health: {
+      state: "ok" as const,
+      errorCode: null,
+      message: null,
+    },
   };
 }
 
