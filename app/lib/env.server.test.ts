@@ -17,6 +17,8 @@ const PLAID_ENV_KEYS = [
   "PLAID_SANDBOX_LINK_PHONE",
   "CLERK_SECRET_KEY",
   "VITE_CLERK_PUBLISHABLE_KEY",
+  "CONVEX_URL",
+  "CONVEX_INTERNAL_SECRET",
 ] as const;
 
 function loadEnv(extra: Record<string, string> = {}) {
@@ -55,6 +57,8 @@ function validEnv(overrides: Record<string, string> = {}) {
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     CLERK_SECRET_KEY: "test-clerk-secret",
     VITE_CLERK_PUBLISHABLE_KEY: "test-clerk-publishable",
+    CONVEX_URL: "https://example.convex.cloud",
+    CONVEX_INTERNAL_SECRET: "test-convex-secret",
     ...overrides,
   };
 }
@@ -62,6 +66,17 @@ function validEnv(overrides: Record<string, string> = {}) {
 describe("env.server", () => {
   test("fails fast when required vars are missing", () => {
     const result = loadEnv();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Missing required environment variable");
+  });
+
+  test("fails fast when Convex vars are missing", () => {
+    const result = loadEnv(
+      validEnv({
+        CONVEX_URL: "",
+        CONVEX_INTERNAL_SECRET: "",
+      }),
+    );
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Missing required environment variable");
   });

@@ -103,6 +103,9 @@ export const env = {
 
   CLERK_SECRET_KEY: required("CLERK_SECRET_KEY"),
   VITE_CLERK_PUBLISHABLE_KEY: required("VITE_CLERK_PUBLISHABLE_KEY"),
+
+  CONVEX_URL: required("CONVEX_URL"),
+  CONVEX_INTERNAL_SECRET: required("CONVEX_INTERNAL_SECRET"),
 } as const;
 
 export type PlaidEnvName = typeof env.PLAID_ENV;

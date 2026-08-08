@@ -63,13 +63,21 @@ All client-server communication is React Router fetchers/forms posting to resour
 ## Setup & Commands
 
 ```bash
-cp .env.example .env   # fill in Plaid sandbox keys; generate encryption key: openssl rand -hex 32
+cp .env.example .env   # fill in Plaid/Clerk keys; generate encryption key: openssl rand -hex 32
 bun install
+bun run convex:dev     # create/select a dev deployment and push the schema/functions
+```
+
+Set `CONVEX_URL` in `.env` to the deployment's `CONVEX_CLOUD_URL` (the `CONVEX_SITE_URL` is not used). Generate `CONVEX_INTERNAL_SECRET` with `openssl rand -hex 32`, add it to `.env`, and set the same value on the development deployment:
+
+```bash
+bunx convex env set CONVEX_INTERNAL_SECRET
 ```
 
 | Command | What it does |
 |---|---|
 | `bun run dev` | Dev server with HMR at `localhost:5173` |
+| `bun run convex:dev` | Push Convex schema/functions to the development deployment and watch for changes |
 | `bun run build` | Production build to `build/` |
 | `bun run start` | Serve production build at `:3000` |
 | `bun run typecheck` | Generate route types + `tsc` |
@@ -84,6 +92,7 @@ The app runs as a single Fly Machine with a persistent volume for `.data/` (JSON
 - [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated (`fly auth login`)
 - Plaid **production** API keys (requires [Plaid production access approval](https://plaid.com/docs/api/production/))
 - Clerk **production** instance with live keys (`sk_live_…`, `pk_live_…`)
+- A [Convex](https://dashboard.convex.dev/) project associated with this repository (`bun run convex:dev`)
 
 ### 1. Create the Fly app (no deploy yet)
 
@@ -111,7 +120,19 @@ fly volumes create finanz_data --region <region> --size 1
 
 The volume name must match `source` in `fly.toml` (`finanz_data`). Redeploy after the volume exists so the Machine mounts it at `/app/.data`.
 
-### 3. Set secrets
+### 3. Configure and deploy Convex
+
+Generate a shared secret, set it on the production Convex deployment, and deploy the functions and schema:
+
+```bash
+openssl rand -hex 32
+bunx convex env set --prod CONVEX_INTERNAL_SECRET
+bunx convex deploy
+```
+
+Enter the generated value when prompted by `convex env set` and retain it for the Fly secret in step 4. In the Convex dashboard, copy the production deployment's `CONVEX_CLOUD_URL`; use that value as `CONVEX_URL`. `CONVEX_SITE_URL` is not used by this app.
+
+### 4. Set Fly secrets
 
 Generate a fresh encryption key for production (`openssl rand -hex 32`). **Do not** reuse the sandbox key — existing encrypted tokens would be unreadable anyway on a fresh deploy.
 
@@ -125,7 +146,9 @@ fly secrets set \
   PLAID_TRANSACTIONS_DAYS_REQUESTED="90" \
   PLAID_TOKEN_ENCRYPTION_KEY="<64-hex-chars-from-openssl-rand-hex-32>" \
   CLERK_SECRET_KEY="sk_live_..." \
-  VITE_CLERK_PUBLISHABLE_KEY="pk_live_..."
+  VITE_CLERK_PUBLISHABLE_KEY="pk_live_..." \
+  CONVEX_URL="https://<production-deployment>.convex.cloud" \
+  CONVEX_INTERNAL_SECRET="<same-shared-secret-set-on-convex>"
 ```
 
 Optional Plaid settings (set when needed):
@@ -135,17 +158,17 @@ fly secrets set PLAID_REDIRECT_URI="https://<your-domain>/..."   # mobile OAuth
 fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
 ```
 
-### 4. Clerk production instance
+### 5. Clerk production instance
 
 1. In the [Clerk Dashboard](https://dashboard.clerk.com/), create a **production** instance (separate from development).
 2. Add your Fly/custom domain under **Domains** and create the DNS **CNAME** records Clerk provides; wait until verification succeeds.
-3. Under **API keys**, copy the live `sk_live_…` and `pk_live_…` keys into `fly secrets set` (step 3).
+3. Under **API keys**, copy the live `sk_live_…` and `pk_live_…` keys into `fly secrets set` (step 4).
 4. Mirror the development auth configuration:
    - **Email** one-time passcode sign-in enabled
    - **Passwords** disabled
    - **Sign-up restrictions** / allowlist so only your account can sign in (single-user app)
 
-### 5. Deploy
+### 6. Deploy
 
 ```bash
 fly deploy
@@ -163,10 +186,12 @@ docker run --rm -p 3000:3000 \
   -e PLAID_TRANSACTIONS_DAYS_REQUESTED=90 \
   -e PLAID_TOKEN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -e CLERK_SECRET_KEY=sk_test_... -e VITE_CLERK_PUBLISHABLE_KEY=pk_test_... \
+  -e CONVEX_URL=https://<development-deployment>.convex.cloud \
+  -e CONVEX_INTERNAL_SECRET=<same-secret-set-on-development-convex> \
   finanz
 ```
 
-Visit `http://localhost:3000/sign-in` to confirm the server boots and env validation passes.
+Use an existing development Convex deployment with its schema/functions pushed. Visit `http://localhost:3000/sign-in` to confirm the server boots and env validation passes.
 
 ## Design decisions
 
