@@ -6,6 +6,7 @@ export interface PlaidItem {
   institutionName: string;
   cursor: string | null;
   createdAt: string;
+  health: ItemHealth;
 }
 
 export interface LinkedAccount {
@@ -19,6 +20,7 @@ export interface LinkedAccount {
   currentBalance: number | null;
   availableBalance: number | null;
   isoCurrencyCode: string | null;
+  updatedAt: string;
 }
 
 export interface PersonalFinanceCategory {
@@ -66,7 +68,17 @@ export interface ItemStore {
   list(userId: string): Promise<PlaidItem[]>;
   get(userId: string, itemId: string): Promise<PlaidItem | null>;
   setCursor(userId: string, itemId: string, cursor: string): Promise<void>;
+  setHealth(userId: string, itemId: string, health: ItemHealth): Promise<void>;
   remove(userId: string, itemId: string): Promise<void>;
+}
+
+export interface AccountStore {
+  replaceForItem(
+    userId: string,
+    itemId: string,
+    accounts: LinkedAccount[],
+  ): Promise<void>;
+  list(userId: string): Promise<LinkedAccount[]>;
 }
 
 export interface TransactionListOptions {

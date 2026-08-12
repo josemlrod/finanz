@@ -13,6 +13,11 @@ function makeItem(itemId: string): PlaidItem {
     institutionName: `Institution ${itemId}`,
     cursor: null,
     createdAt: "2026-07-01T00:00:00.000Z",
+    health: {
+      state: "ok",
+      errorCode: null,
+      message: null,
+    },
   };
 }
 

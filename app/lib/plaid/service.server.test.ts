@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { PlaidApi } from "plaid";
 import type {
+  AccountStore,
+  ItemHealth,
   ItemStore,
   PlaidItem,
   TransactionStore,
@@ -50,8 +52,24 @@ function createItemStore(item: PlaidItem, events: string[] = []): ItemStore {
       events.push("cursor");
       item.cursor = cursor;
     },
+    async setHealth(receivedUserId) {
+      expect(receivedUserId).toBe(userId);
+      events.push("health");
+    },
     async remove(receivedUserId) {
       expect(receivedUserId).toBe(userId);
+    },
+  };
+}
+
+function createAccountStore(events: string[] = []): AccountStore {
+  return {
+    async replaceForItem(receivedUserId) {
+      expect(receivedUserId).toBe(userId);
+      events.push("accounts");
+    },
+    async list() {
+      return [];
     },
   };
 }
@@ -64,6 +82,11 @@ function makeItem(): PlaidItem {
     institutionName: "Test Bank",
     cursor: "cursor-0",
     createdAt: "2026-07-01T00:00:00.000Z",
+    health: {
+      state: "ok",
+      errorCode: null,
+      message: null,
+    },
   };
 }
 
@@ -122,14 +145,125 @@ describe("PlaidService.syncTransactions", () => {
       async transactionsSync() {
         return syncResponse("cursor-1", true);
       },
+      async accountsGet() {
+        return {
+          data: {
+            accounts: [
+              {
+                account_id: "account-1",
+                name: "Checking",
+                official_name: null,
+                type: "depository",
+                subtype: "checking",
+                mask: "1234",
+                balances: {
+                  current: 100,
+                  available: 90,
+                  iso_currency_code: "USD",
+                },
+              },
+            ],
+          },
+        };
+      },
     } as unknown as PlaidApi;
-    const service = createPlaidService(itemStore, transactionStore, client);
+    const service = createPlaidService(
+      itemStore,
+      transactionStore,
+      createAccountStore(events),
+      client,
+    );
 
     await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
       "write failed",
     );
     expect(events).toEqual(["diff"]);
     expect((await itemStore.get(userId, "item-1"))?.cursor).toBe("cursor-0");
+  });
+
+  test("persists item health when sync fails with a reauth error", async () => {
+    const healthEvents: ItemHealth[] = [];
+    const itemStore: ItemStore = {
+      ...createItemStore(makeItem()),
+      async setHealth(_userId, _itemId, health) {
+        healthEvents.push(health);
+      },
+    };
+    const transactionStore: TransactionStore = {
+      async applySync() {},
+      async list() {
+        return [];
+      },
+    };
+    const client = {
+      async transactionsSync() {
+        throw Object.assign(new Error("login required"), {
+          response: {
+            data: {
+              error_code: "ITEM_LOGIN_REQUIRED",
+              error_type: "ITEM_ERROR",
+              display_message: "Please reconnect",
+            },
+          },
+        });
+      },
+    } as unknown as PlaidApi;
+    const service = createPlaidService(
+      itemStore,
+      transactionStore,
+      createAccountStore(),
+      client,
+    );
+
+    await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
+      "login required",
+    );
+    expect(healthEvents).toEqual([
+      {
+        state: "reauth_required",
+        errorCode: "ITEM_LOGIN_REQUIRED",
+        message: "Please reconnect",
+      },
+    ]);
+  });
+
+  test("does not update Item Health when account snapshot persistence fails", async () => {
+    const events: string[] = [];
+    const itemStore = createItemStore(makeItem(), events);
+    const transactionStore: TransactionStore = {
+      async applySync() {},
+      async list() {
+        return [];
+      },
+    };
+    const accountStore: AccountStore = {
+      async replaceForItem() {
+        events.push("accounts");
+        throw new Error("snapshot write failed");
+      },
+      async list() {
+        return [];
+      },
+    };
+    const client = {
+      async transactionsSync() {
+        return syncResponse("cursor-1");
+      },
+      async accountsGet() {
+        return { data: { accounts: [] } };
+      },
+    } as unknown as PlaidApi;
+    const service = createPlaidService(
+      itemStore,
+      transactionStore,
+      accountStore,
+      client,
+    );
+
+    await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
+      "snapshot write failed",
+    );
+    expect(events).toEqual(["cursor", "accounts"]);
   });
 
   test("serializes concurrent syncs for the same Item", async () => {
@@ -154,8 +288,16 @@ describe("PlaidService.syncTransactions", () => {
         }
         return syncResponse("cursor-2");
       },
+      async accountsGet() {
+        return { data: { accounts: [] } };
+      },
     } as unknown as PlaidApi;
-    const service = createPlaidService(itemStore, transactionStore, client);
+    const service = createPlaidService(
+      itemStore,
+      transactionStore,
+      createAccountStore(),
+      client,
+    );
 
     const firstSync = service.syncTransactions(userId, "item-1");
     await firstStarted.promise;

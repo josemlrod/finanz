@@ -11,6 +11,7 @@ import { getPlaidClient } from "~/lib/plaid/client.server";
 import { HEALTHY_ITEM, toItemHealth } from "~/lib/plaid/errors.server";
 import { runTransactionsSync } from "~/lib/plaid/sync-engine.server";
 import type {
+  AccountStore,
   ItemHealth,
   ItemStore,
   LinkedAccount,
@@ -56,6 +57,7 @@ export class PlaidService {
   constructor(
     private readonly itemStore: ItemStore,
     private readonly transactionStore: TransactionStore,
+    private readonly accountStore: AccountStore,
     private readonly client: PlaidApi = getPlaidClient(),
   ) {}
 
@@ -121,18 +123,27 @@ export class PlaidService {
       institutionName: metadata.institutionName,
       cursor: null,
       createdAt: new Date().toISOString(),
+      health: HEALTHY_ITEM,
     };
 
     await this.itemStore.save(userId, item);
+
+    try {
+      const accounts = await this.fetchAccountsFromPlaid(userId, item.itemId);
+      await this.persistAccountsSnapshot(userId, item.itemId, accounts);
+      await this.persistItemHealth(userId, item.itemId, HEALTHY_ITEM);
+    } catch {
+      // The Item is linked; a later sync can retry the account snapshot.
+    }
+
     return item;
   }
 
   async getAccounts(userId: string, itemId: string): Promise<LinkedAccount[]> {
-    const accessToken = await this.getDecryptedAccessToken(userId, itemId);
-    const response = await this.client.accountsGet({ access_token: accessToken });
-    return response.data.accounts.map((account) =>
-      mapAccount(account, itemId),
-    );
+    const accounts = await this.fetchAccountsFromPlaid(userId, itemId);
+    await this.persistAccountsSnapshot(userId, itemId, accounts);
+    await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
+    return accounts;
   }
 
   /**
@@ -155,12 +166,23 @@ export class PlaidService {
 
   async refreshBalances(userId: string, itemId: string): Promise<LinkedAccount[]> {
     const accessToken = await this.getDecryptedAccessToken(userId, itemId);
-    const response = await this.client.accountsBalanceGet({
-      access_token: accessToken,
-    });
-    return response.data.accounts.map((account) =>
-      mapAccount(account, itemId),
+    let response;
+
+    try {
+      response = await this.client.accountsBalanceGet({
+        access_token: accessToken,
+      });
+    } catch (error) {
+      await this.persistItemHealth(userId, itemId, toItemHealth(error));
+      throw error;
+    }
+
+    const accounts = stampAccounts(
+      response.data.accounts.map((account) => mapAccount(account, itemId)),
     );
+    await this.persistAccountsSnapshot(userId, itemId, accounts);
+    await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
+    return accounts;
   }
 
   async syncTransactions(
@@ -168,9 +190,11 @@ export class PlaidService {
     itemId: string,
     options: SyncTransactionsOptions = {},
   ): Promise<SyncTransactionsResult> {
-    return withItemSyncLock(itemId, () =>
+    const result = await withItemSyncLock(itemId, () =>
       this.runSyncTransactions(userId, itemId, options),
     );
+    await this.refreshStoredAccountsSnapshot(userId, itemId);
+    return result;
   }
 
   private async runSyncTransactions(
@@ -210,7 +234,13 @@ export class PlaidService {
       };
     };
 
-    const result = await runTransactionsSync(fetchPage, initialCursor);
+    let result;
+    try {
+      result = await runTransactionsSync(fetchPage, initialCursor);
+    } catch (error) {
+      await this.persistItemHealth(userId, itemId, toItemHealth(error));
+      throw error;
+    }
 
     if (result.status === "product_not_ready") {
       return { diff: emptyDiff(), hasUpdates: false };
@@ -229,6 +259,50 @@ export class PlaidService {
     return { diff, hasUpdates: hasDiffChanges(diff) };
   }
 
+  private async fetchAccountsFromPlaid(
+    userId: string,
+    itemId: string,
+  ): Promise<LinkedAccount[]> {
+    const accessToken = await this.getDecryptedAccessToken(userId, itemId);
+    let response;
+
+    try {
+      response = await this.client.accountsGet({ access_token: accessToken });
+    } catch (error) {
+      await this.persistItemHealth(userId, itemId, toItemHealth(error));
+      throw error;
+    }
+
+    return stampAccounts(
+      response.data.accounts.map((account) => mapAccount(account, itemId)),
+    );
+  }
+
+  private async refreshStoredAccountsSnapshot(
+    userId: string,
+    itemId: string,
+  ): Promise<void> {
+    const accounts = await this.fetchAccountsFromPlaid(userId, itemId);
+    await this.persistAccountsSnapshot(userId, itemId, accounts);
+    await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
+  }
+
+  private async persistAccountsSnapshot(
+    userId: string,
+    itemId: string,
+    accounts: LinkedAccount[],
+  ): Promise<void> {
+    await this.accountStore.replaceForItem(userId, itemId, accounts);
+  }
+
+  private async persistItemHealth(
+    userId: string,
+    itemId: string,
+    health: ItemHealth,
+  ): Promise<void> {
+    await this.itemStore.setHealth(userId, itemId, health);
+  }
+
   private async getDecryptedAccessToken(
     userId: string,
     itemId: string,
@@ -244,12 +318,21 @@ export class PlaidService {
 export function createPlaidService(
   itemStore: ItemStore,
   transactionStore: TransactionStore,
+  accountStore: AccountStore,
   client?: PlaidApi,
 ): PlaidService {
-  return new PlaidService(itemStore, transactionStore, client);
+  return new PlaidService(itemStore, transactionStore, accountStore, client);
 }
 
-function mapAccount(account: AccountBase, itemId: string): LinkedAccount {
+function stampAccounts(accounts: Omit<LinkedAccount, "updatedAt">[]): LinkedAccount[] {
+  const updatedAt = new Date().toISOString();
+  return accounts.map((account) => ({ ...account, updatedAt }));
+}
+
+function mapAccount(
+  account: AccountBase,
+  itemId: string,
+): Omit<LinkedAccount, "updatedAt"> {
   return {
     accountId: account.account_id,
     itemId,

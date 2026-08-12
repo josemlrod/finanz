@@ -4,6 +4,19 @@ import { mutation, query } from "./_generated/server";
 import { requireInternalSecret } from "./lib/auth";
 import { resolveUserId } from "./lib/users";
 
+const itemHealthState = v.union(
+  v.literal("ok"),
+  v.literal("reauth_required"),
+  v.literal("consent_expiring"),
+  v.literal("error"),
+);
+
+const itemHealth = v.object({
+  state: itemHealthState,
+  errorCode: v.union(v.string(), v.null()),
+  message: v.union(v.string(), v.null()),
+});
+
 const plaidItem = v.object({
   itemId: v.string(),
   accessToken: v.string(),
@@ -11,7 +24,14 @@ const plaidItem = v.object({
   institutionName: v.string(),
   cursor: v.union(v.string(), v.null()),
   createdAt: v.string(),
+  health: itemHealth,
 });
+
+const DEFAULT_HEALTH = {
+  state: "ok" as const,
+  errorCode: null,
+  message: null,
+};
 
 function toPlaidItem(item: Doc<"items">) {
   return {
@@ -21,6 +41,11 @@ function toPlaidItem(item: Doc<"items">) {
     institutionName: item.institutionName,
     cursor: item.cursor,
     createdAt: item.createdAt,
+    health: {
+      state: item.healthState ?? DEFAULT_HEALTH.state,
+      errorCode: item.healthErrorCode ?? DEFAULT_HEALTH.errorCode,
+      message: item.healthMessage ?? DEFAULT_HEALTH.message,
+    },
   };
 }
 
@@ -61,13 +86,30 @@ export const save = mutation({
         throw new Error(`Item not found: ${item.itemId}`);
       }
 
-      await ctx.db.patch(existing._id, item);
+      await ctx.db.patch(existing._id, {
+        accessToken: item.accessToken,
+        institutionId: item.institutionId,
+        institutionName: item.institutionName,
+        cursor: item.cursor,
+        createdAt: item.createdAt,
+        healthState: item.health.state,
+        healthErrorCode: item.health.errorCode,
+        healthMessage: item.health.message,
+      });
       return;
     }
 
     await ctx.db.insert("items", {
       userId: convexUserId,
-      ...item,
+      itemId: item.itemId,
+      accessToken: item.accessToken,
+      institutionId: item.institutionId,
+      institutionName: item.institutionName,
+      cursor: item.cursor,
+      createdAt: item.createdAt,
+      healthState: item.health.state,
+      healthErrorCode: item.health.errorCode,
+      healthMessage: item.health.message,
     });
   },
 });
@@ -117,6 +159,28 @@ export const setCursor = mutation({
     }
 
     await ctx.db.patch(item._id, { cursor });
+  },
+});
+
+export const setHealth = mutation({
+  args: {
+    userId: v.string(),
+    secret: v.string(),
+    itemId: v.string(),
+    health: itemHealth,
+  },
+  handler: async (ctx, { userId, secret, itemId, health }) => {
+    requireInternalSecret(secret);
+    const item = await getOwnedItem(ctx, userId, itemId);
+    if (!item) {
+      throw new Error(`Item not found: ${itemId}`);
+    }
+
+    await ctx.db.patch(item._id, {
+      healthState: health.state,
+      healthErrorCode: health.errorCode,
+      healthMessage: health.message,
+    });
   },
 });
 
