@@ -1,6 +1,7 @@
 import { CountryCode, Products } from "plaid";
+import type { RequiredEnvKey } from "./env.keys";
 
-function required(name: string): string {
+function required(name: RequiredEnvKey): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
