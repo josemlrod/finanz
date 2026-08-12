@@ -18,7 +18,3 @@ primary_region = "iad"
     grace_period = "30s"
     method = "GET"
     path = "/sign-in"
-
-[mounts]
-  source = "finanz_data"
-  destination = "/app/.data"

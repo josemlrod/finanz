@@ -11,7 +11,7 @@ Single-user personal finance dashboard. Links bank accounts through [Plaid](http
 | Build | Vite |
 | Styling | Tailwind CSS v4 |
 | Plaid | `plaid` (server SDK) + `react-plaid-link` (client) |
-| Persistence | JSON files in `.data/` behind store interfaces (Postgres swap planned) |
+| Persistence | Convex (Items, Transactions, Linked Account snapshots) |
 | Language | TypeScript (strict) |
 
 ## Architecture
@@ -28,7 +28,7 @@ flowchart LR
         HL["GET / loader"]
         API["/api/plaid/*<br>link-token · exchange · sync · refresh-balances"]
         SVC[PlaidService]
-        ST["ItemStore / TransactionStore<br>(.data/*.json)"]
+        ST["Convex stores<br>(items · transactions · accounts)"]
     end
 
     PL[Plaid API]
@@ -51,7 +51,7 @@ All client-server communication is React Router fetchers/forms posting to resour
 | `app/routes/home.tsx` | Dashboard: loads items, account snapshots, and transactions; renders per-bank panels |
 | `app/routes/api/plaid/*` | Resource routes: mint link tokens, exchange public tokens, run syncs, refresh balances |
 | `app/lib/plaid/service.server.ts` | All Plaid logic: Link tokens (incl. update-mode reconnect), token exchange, cursor sync with pagination/retry, account fetches |
-| `app/lib/plaid/item-store.server.ts` `app/lib/plaid/transaction-store.server.ts` | File-backed persistence. Implement the `ItemStore` / `TransactionStore` interfaces from `types.ts` — swap these to move to a real database |
+| `app/lib/plaid/convex-*-store.server.ts` | Convex-backed persistence implementing the `ItemStore` / `TransactionStore` / `AccountStore` interfaces from `types.ts` |
 | `app/lib/plaid/wiring.server.ts` | Composition root: wires stores into `PlaidService` (lazy singletons) |
 | `app/lib/plaid/errors.server.ts` | Normalizes Plaid errors and maps them to item health states (reauth, consent expiring, error) |
 | `app/lib/crypto.server.ts` | AES-256-GCM encryption for Plaid access tokens at rest |
@@ -85,7 +85,7 @@ bunx convex env set CONVEX_INTERNAL_SECRET
 
 ## Fly.io deployment
 
-The app runs as a single Fly Machine with a persistent volume for `.data/` (JSON file store). Do **not** scale beyond one machine — in-process file locks assume a single writer.
+The app runs as a single Fly Machine. Per-Item sync uses an in-process lock, so only one machine should run sync for a given Item at a time (the default `fly scale count 1` is fine for this single-user app).
 
 ### Prerequisites
 
@@ -102,7 +102,7 @@ From the repo root:
 fly launch --no-deploy
 ```
 
-Review `fly.toml` — confirm `internal_port = 3000`, the `[mounts]` destination is `/app/.data`, and the app name/region look correct.
+Review `fly.toml` — confirm `internal_port = 3000` and the app name/region look correct.
 
 `fly launch` may create two Machines by default. Scale to exactly one:
 
@@ -110,17 +110,14 @@ Review `fly.toml` — confirm `internal_port = 3000`, the `[mounts]` destination
 fly scale count 1
 ```
 
-### 2. Create the data volume
-
-Create a volume in the **same region** as your Machine (check with `fly status`):
+If upgrading from a deployment that used the old `finanz_data` volume, destroy it after confirming the app runs without it:
 
 ```bash
-fly volumes create finanz_data --region <region> --size 1
+fly volumes list
+fly volumes destroy <volume-id>
 ```
 
-The volume name must match `source` in `fly.toml` (`finanz_data`). Redeploy after the volume exists so the Machine mounts it at `/app/.data`.
-
-### 3. Configure and deploy Convex
+### 2. Configure and deploy Convex
 
 Generate a shared secret, set it on the production Convex deployment, and deploy the functions and schema:
 
@@ -130,9 +127,9 @@ bunx convex env set --prod CONVEX_INTERNAL_SECRET
 bunx convex deploy
 ```
 
-Enter the generated value when prompted by `convex env set` and retain it for the Fly secret in step 4. In the Convex dashboard, copy the production deployment's `CONVEX_CLOUD_URL`; use that value as `CONVEX_URL`. `CONVEX_SITE_URL` is not used by this app.
+Enter the generated value when prompted by `convex env set` and retain it for the Fly secret in step 3. In the Convex dashboard, copy the production deployment's `CONVEX_CLOUD_URL`; use that value as `CONVEX_URL`. `CONVEX_SITE_URL` is not used by this app.
 
-### 4. Set Fly secrets
+### 3. Set Fly secrets
 
 Generate a fresh encryption key for production (`openssl rand -hex 32`). **Do not** reuse the sandbox key — existing encrypted tokens would be unreadable anyway on a fresh deploy.
 
@@ -158,7 +155,7 @@ fly secrets set PLAID_REDIRECT_URI="https://<your-domain>/..."   # mobile OAuth
 fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
 ```
 
-### 5. Clerk production instance
+### 4. Clerk production instance
 
 1. In the [Clerk Dashboard](https://dashboard.clerk.com/), create a **production** instance (separate from development).
 2. Add your Fly/custom domain under **Domains** and create the DNS **CNAME** records Clerk provides; wait until verification succeeds.
@@ -168,7 +165,7 @@ fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
    - **Passwords** disabled
    - **Sign-up restrictions** / allowlist so only your account can sign in (single-user app)
 
-### 6. Deploy
+### 5. Deploy
 
 ```bash
 fly deploy
@@ -200,4 +197,4 @@ Use an existing development Convex deployment with its schema/functions pushed. 
 - **Free vs. billed calls**: page load uses free `/accounts/get`; billed real-time `/accounts/balance/get` only behind the explicit "Refresh balances" button.
 - **Duplicate institutions blocked** on exchange — Plaid Item slots are permanently consumed on the Trial plan.
 - **Reconnects use Link update mode** to repair an existing Item instead of creating a new billable one.
-- **Persistence seam**: all storage goes through `ItemStore` / `TransactionStore` interfaces so the JSON files can be replaced with Postgres without touching Plaid logic.
+- **Persistence seam**: all storage goes through `ItemStore` / `TransactionStore` / `AccountStore` interfaces backed by Convex, keeping Plaid logic independent of the database.
