@@ -87,12 +87,40 @@ bunx convex env set CONVEX_INTERNAL_SECRET
 
 The app runs as a single Fly Machine. Per-Item sync uses an in-process lock, so only one machine should run sync for a given Item at a time (the default `fly scale count 1` is fine for this single-user app).
 
+**Deploy order:** run `bunx convex deploy` (pushes schema/functions to the production Convex deployment, authenticated via `CONVEX_DEPLOY_KEY`) **before** `fly deploy` whenever Convex functions or schema change. The Fly image does not include Convex code — the app talks to the hosted deployment at `CONVEX_URL`.
+
+All Fly configuration is **runtime secrets** (`fly secrets set`). There are no build-time environment variables: the Clerk publishable key is served at runtime by `rootAuthLoader` (despite the `VITE_` prefix, it is read from `process.env` on the server), and Convex is server-only, so nothing sensitive is baked into the client bundle during `docker build`. The Dockerfile needs no build args.
+
+### Environment variables
+
+| Variable | Where to set | Runtime |
+|---|---|---|
+| `PLAID_CLIENT_ID` | local `.env` · Fly secrets | yes |
+| `PLAID_SECRET` | local `.env` · Fly secrets | yes |
+| `PLAID_ENV` | local `.env` · Fly secrets (`production`) | yes |
+| `PLAID_PRODUCTS` | local `.env` · Fly secrets | yes |
+| `PLAID_COUNTRY_CODES` | local `.env` · Fly secrets | yes |
+| `PLAID_TRANSACTIONS_DAYS_REQUESTED` | local `.env` · Fly secrets | yes |
+| `PLAID_TOKEN_ENCRYPTION_KEY` | local `.env` · Fly secrets | yes |
+| `PLAID_REDIRECT_URI` | local `.env` · Fly secrets (optional) | yes |
+| `PLAID_WEBHOOK_URL` | local `.env` · Fly secrets (optional) | yes |
+| `PLAID_SANDBOX_LINK_PHONE` | local `.env` only (optional) | yes |
+| `CLERK_SECRET_KEY` | local `.env` · Fly secrets (`sk_live_…`) | yes |
+| `VITE_CLERK_PUBLISHABLE_KEY` | local `.env` · Fly secrets (`pk_live_…`) | yes |
+| `CONVEX_URL` | local `.env` · Fly secrets (prod `CONVEX_CLOUD_URL`) | yes |
+| `CONVEX_INTERNAL_SECRET` | local `.env` · Fly secrets · Convex deployment env (same value) | yes |
+| `CONVEX_DEPLOYMENT` | local `.env` only (set by `convex dev`) | no |
+| `CONVEX_DEPLOY_KEY` | local machine / CI only (Convex deploy keys) | no |
+
+Validated at boot by `app/lib/env.server.ts` (see `.env.example` for defaults and comments).
+
 ### Prerequisites
 
 - [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated (`fly auth login`)
 - Plaid **production** API keys (requires [Plaid production access approval](https://plaid.com/docs/api/production/))
 - Clerk **production** instance with live keys (`sk_live_…`, `pk_live_…`)
 - A [Convex](https://dashboard.convex.dev/) project associated with this repository (`bun run convex:dev`)
+- `CONVEX_DEPLOY_KEY` on your machine or CI for `bunx convex deploy` (Convex dashboard → Settings → Deploy keys)
 
 ### 1. Create the Fly app (no deploy yet)
 
@@ -159,7 +187,7 @@ fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
 
 1. In the [Clerk Dashboard](https://dashboard.clerk.com/), create a **production** instance (separate from development).
 2. Add your Fly/custom domain under **Domains** and create the DNS **CNAME** records Clerk provides; wait until verification succeeds.
-3. Under **API keys**, copy the live `sk_live_…` and `pk_live_…` keys into `fly secrets set` (step 4).
+3. Under **API keys**, copy the live `sk_live_…` and `pk_live_…` keys into `fly secrets set` (step 3).
 4. Mirror the development auth configuration:
    - **Email** one-time passcode sign-in enabled
    - **Passwords** disabled
@@ -167,11 +195,21 @@ fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
 
 ### 5. Deploy
 
+If Convex schema or functions changed since the last production push, run `bunx convex deploy` first (step 2), then:
+
 ```bash
 fly deploy
 ```
 
-Health checks hit `GET /sign-in` (returns 200; unauthenticated `/` redirects and is unsuitable). Confirm with `fly status` and `fly logs`.
+### 6. Verify
+
+Fly health checks hit `GET /sign-in` (returns 200; unauthenticated `/` redirects and is unsuitable for the check). After deploy:
+
+1. `fly status` — Machine is `started` and the `/sign-in` health check is passing.
+2. `fly logs` — No `Missing required environment variable` errors from env validation.
+3. Open `https://<your-domain>/sign-in` — Clerk sign-in loads (confirms live keys and domain CNAMEs).
+4. Sign in and link a bank via Plaid Link — confirms Plaid production keys and `CONVEX_URL` reach Convex.
+5. In the [Convex dashboard](https://dashboard.convex.dev/), confirm new rows appear in `items`, `accounts`, and `transactions` after linking.
 
 ### Local Docker smoke test
 

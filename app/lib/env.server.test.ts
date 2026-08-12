@@ -1,29 +1,40 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
+import { REQUIRED_ENV_KEYS } from "./env.keys";
 
 const projectRoot = path.resolve(import.meta.dir, "../..");
 
-const PLAID_ENV_KEYS = [
-  "PLAID_CLIENT_ID",
-  "PLAID_SECRET",
-  "PLAID_ENV",
-  "PLAID_PRODUCTS",
-  "PLAID_COUNTRY_CODES",
-  "PLAID_TRANSACTIONS_DAYS_REQUESTED",
-  "PLAID_TOKEN_ENCRYPTION_KEY",
+const ENV_KEYS = [
+  ...REQUIRED_ENV_KEYS,
   "PLAID_REDIRECT_URI",
   "PLAID_WEBHOOK_URL",
   "PLAID_SANDBOX_LINK_PHONE",
-  "CLERK_SECRET_KEY",
-  "VITE_CLERK_PUBLISHABLE_KEY",
-  "CONVEX_URL",
-  "CONVEX_INTERNAL_SECRET",
 ] as const;
+
+function parseEnvExampleKeys(filePath: string): string[] {
+  const content = fs.readFileSync(filePath, "utf8");
+  const keys: string[] = [];
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const match = trimmed.match(/^([A-Z][A-Z0-9_]+)=/);
+    if (match) {
+      keys.push(match[1]);
+    }
+  }
+
+  return keys;
+}
 
 function loadEnv(extra: Record<string, string> = {}) {
   const env = { ...process.env } as Record<string, string | undefined>;
-  for (const key of PLAID_ENV_KEYS) {
+  for (const key of ENV_KEYS) {
     delete env[key];
   }
   Object.assign(env, extra);
@@ -124,5 +135,14 @@ describe("env.server", () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Invalid PLAID_COUNTRY_CODES value");
+  });
+
+  test(".env.example documents every required boot env var", () => {
+    const envExamplePath = path.join(projectRoot, ".env.example");
+    const documentedKeys = parseEnvExampleKeys(envExamplePath);
+
+    for (const key of REQUIRED_ENV_KEYS) {
+      expect(documentedKeys).toContain(key);
+    }
   });
 });
