@@ -1,6 +1,6 @@
 # Finanz
 
-Single-user personal finance dashboard. Links bank accounts through [Plaid](https://plaid.com), shows account balances, and syncs transactions using Plaid's cursor-based sync protocol. Currently runs end-to-end against Plaid **Sandbox**.
+Clerk-authenticated personal finance dashboard with per-user data isolation. Links Items through [Plaid](https://plaid.com) and derives month-over-month spending views from Transactions synchronized with Plaid's cursor-based protocol. Supports Plaid Sandbox and production through `PLAID_ENV`; `.env.example` defaults to Sandbox. A Clerk allowlist can restrict a deployment to one user.
 
 ## Stack
 
@@ -11,7 +11,8 @@ Single-user personal finance dashboard. Links bank accounts through [Plaid](http
 | Build | Vite |
 | Styling | Tailwind CSS v4 |
 | Plaid | `plaid` (server SDK) + `react-plaid-link` (client) |
-| Persistence | Convex (Items, Transactions, Linked Account snapshots) |
+| Authentication | Clerk |
+| Persistence | Convex (users, Items, Transactions, and Linked Account snapshots, all user-scoped) |
 | Language | TypeScript (strict) |
 
 ## Architecture
@@ -20,8 +21,7 @@ Single-user personal finance dashboard. Links bank accounts through [Plaid](http
 flowchart LR
     subgraph Browser
         LB[PlaidLinkButton]
-        DP[Dashboard + ItemPanel]
-        AS[AutoSync polling]
+        DP[Dashboard spending views]
     end
 
     subgraph Server["React Router server"]
@@ -34,31 +34,32 @@ flowchart LR
     PL[Plaid API]
 
     LB --> API
-    AS --> API
     DP --> HL
-    HL --> SVC
+    HL --> ST
     API --> SVC
     SVC --> PL
     SVC --> ST
 ```
 
-All client-server communication is React Router fetchers/forms posting to resource routes. No webhooks yet — `AutoSync` polls while initial transaction history backfills.
+Page data is served through React Router loaders. Plaid mutations use React Router fetchers/forms and resource routes, while Clerk's client SDK handles sign-in and sign-up. No webhook route is implemented. `ItemPanel` and its `AutoSync` backfill polling are implemented but are not currently mounted by the home route.
 
 ## Components
 
 | Path | Responsibility |
 |---|---|
-| `app/routes/home.tsx` | Dashboard: loads items, account snapshots, and transactions; renders per-bank panels |
+| `app/routes/home.tsx` | Authenticated dashboard: loads user-scoped Items, Linked Account snapshots, and Transactions; renders aggregate spending views |
 | `app/routes/api/plaid/*` | Resource routes: mint link tokens, exchange public tokens, run syncs, refresh balances |
-| `app/lib/plaid/service.server.ts` | All Plaid logic: Link tokens (incl. update-mode reconnect), token exchange, cursor sync with pagination/retry, account fetches |
+| `app/lib/auth.server.ts` | Requires Clerk authentication and upserts authenticated users into Convex |
+| `app/lib/plaid/service.server.ts` | Orchestrates Link tokens, token exchange, synchronization, and Linked Account retrieval |
+| `app/lib/plaid/sync-engine.server.ts` | Implements cursor pagination, Sync Diff accumulation, and mutation retry |
 | `app/lib/plaid/convex-*-store.server.ts` | Convex-backed persistence implementing the `ItemStore` / `TransactionStore` / `AccountStore` interfaces from `types.ts` |
 | `app/lib/plaid/wiring.server.ts` | Composition root: wires stores into `PlaidService` (lazy singletons) |
 | `app/lib/plaid/errors.server.ts` | Normalizes Plaid errors and maps them to item health states (reauth, consent expiring, error) |
 | `app/lib/crypto.server.ts` | AES-256-GCM encryption for Plaid access tokens at rest |
 | `app/lib/env.server.ts` | Validates all `PLAID_*` env vars at boot, fails fast |
-| `app/components/plaid-link.tsx` | SSR-safe Plaid Link modal wrapper (link + reconnect flows) |
-| `app/components/dashboard/item-panel.tsx` | Per-bank UI: health banners, accounts, transactions, sync/refresh actions |
-| `app/components/dashboard/auto-sync.tsx` | Headless backoff polling while transaction history loads (webhook substitute) |
+| `app/components/plaid-link.tsx` | SSR-safe Plaid Link modal wrapper; linking is mounted and reconnect support is implemented |
+| `app/components/dashboard/item-panel.tsx` | Implemented but currently unmounted per-Item UI: health banners, Linked Accounts, Transactions, and sync/refresh actions |
+| `app/components/dashboard/auto-sync.tsx` | Implemented but currently inactive backoff polling while transaction history loads |
 
 ## Setup & Commands
 
@@ -81,11 +82,11 @@ bunx convex env set CONVEX_INTERNAL_SECRET
 | `bun run build` | Production build to `build/` |
 | `bun run start` | Serve production build at `:3000` |
 | `bun run typecheck` | Generate route types + `tsc` |
-| `bun test` | Unit tests (crypto, env validation, error mapping, sync reconciliation) |
+| `bun test` | Tests for crypto, environment validation, Plaid errors and sync behavior, dashboard calculations, authenticated API identity, and user-scoped Convex persistence |
 
 ## Fly.io deployment
 
-The app runs as a single Fly Machine. Per-Item sync uses an in-process lock, so only one machine should run sync for a given Item at a time (the default `fly scale count 1` is fine for this single-user app).
+The app runs as a single Fly Machine. Per-Item synchronization uses an in-process lock, so the current implementation should run on one application Machine unless that lock is replaced with a distributed lock. A Clerk allowlist can separately restrict the deployment to one user.
 
 **Deploy order:** run `bunx convex deploy` (pushes schema/functions to the production Convex deployment, authenticated via `CONVEX_DEPLOY_KEY`) **before** `fly deploy` whenever Convex functions or schema change. The Fly image does not include Convex code — the app talks to the hosted deployment at `CONVEX_URL`.
 
@@ -122,15 +123,17 @@ Validated at boot by `app/lib/env.server.ts` (see `.env.example` for defaults an
 - A [Convex](https://dashboard.convex.dev/) project associated with this repository (`bun run convex:dev`)
 - `CONVEX_DEPLOY_KEY` on your machine or CI for `bunx convex deploy` (Convex dashboard → Settings → Deploy keys)
 
-### 1. Create the Fly app (no deploy yet)
+### 1. Configure the Fly app (no deploy yet)
 
-From the repo root:
+The repository includes `fly.toml`. Before the first deployment, choose an available Fly app name and desired region by updating its `app` and `primary_region`, then create or register that app with Fly. Keep `internal_port = 3000`.
+
+From the repo root, if the configured app does not exist yet:
 
 ```bash
 fly launch --no-deploy
 ```
 
-Review `fly.toml` — confirm `internal_port = 3000` and the app name/region look correct.
+Review any changes made by `fly launch` and retain the repository's port and Machine settings.
 
 `fly launch` may create two Machines by default. Scale to exactly one:
 
@@ -176,12 +179,13 @@ fly secrets set \
   CONVEX_INTERNAL_SECRET="<same-shared-secret-set-on-convex>"
 ```
 
-Optional Plaid settings (set when needed):
+Optional Plaid redirect setting (set when needed):
 
 ```bash
 fly secrets set PLAID_REDIRECT_URI="https://<your-domain>/..."   # mobile OAuth
-fly secrets set PLAID_WEBHOOK_URL="https://<your-domain>/api/plaid/webhook"
 ```
+
+Do not set `PLAID_WEBHOOK_URL` until a webhook resource route is implemented and deployed.
 
 ### 4. Clerk production instance
 
@@ -209,7 +213,7 @@ Fly health checks hit `GET /sign-in` (returns 200; unauthenticated `/` redirects
 2. `fly logs` — No `Missing required environment variable` errors from env validation.
 3. Open `https://<your-domain>/sign-in` — Clerk sign-in loads (confirms live keys and domain CNAMEs).
 4. Sign in and link a bank via Plaid Link — confirms Plaid production keys and `CONVEX_URL` reach Convex.
-5. In the [Convex dashboard](https://dashboard.convex.dev/), confirm new rows appear in `items`, `accounts`, and `transactions` after linking.
+5. In the [Convex dashboard](https://dashboard.convex.dev/), confirm an `items` row appears after linking. `accounts` and `transactions` rows appear after their respective Plaid calls succeed; transaction backfill may not be ready immediately.
 
 ### Local Docker smoke test
 
@@ -230,9 +234,9 @@ Use an existing development Convex deployment with its schema/functions pushed. 
 
 ## Design decisions
 
-- **No auth, single user by design** — a hardcoded user id is sent to Plaid.
+- **Clerk authentication with user-scoped persistence** — each request uses the authenticated Clerk user ID, which is also sent to Plaid as `client_user_id`. A Clerk allowlist can restrict a deployment to one user.
 - **Access tokens encrypted at rest** (AES-256-GCM); link/public tokens are never stored.
-- **Free vs. billed calls**: page load uses free `/accounts/get`; billed real-time `/accounts/balance/get` only behind the explicit "Refresh balances" button.
-- **Duplicate institutions blocked** on exchange — Plaid Item slots are permanently consumed on the Trial plan.
+- **Linked Account snapshots**: page load reads stored snapshots from Convex. `/accounts/get` refreshes them during Item exchange and after transaction sync; `/accounts/balance/get` is exposed through the refresh-balances action, whose current button is in the unmounted `ItemPanel`.
+- **Best-effort duplicate-institution check** — exchange is rejected when supplied Plaid metadata identifies an institution already linked by that user. Database uniqueness does not enforce this constraint.
 - **Reconnects use Link update mode** to repair an existing Item instead of creating a new billable one.
-- **Persistence seam**: all storage goes through `ItemStore` / `TransactionStore` / `AccountStore` interfaces backed by Convex, keeping Plaid logic independent of the database.
+- **Persistence seam**: Plaid Item, Transaction, and Linked Account persistence goes through `ItemStore` / `TransactionStore` / `AccountStore` interfaces backed by Convex. Clerk-user persistence is handled separately.
