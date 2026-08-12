@@ -177,7 +177,7 @@ describe("PlaidService.syncTransactions", () => {
     await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
       "write failed",
     );
-    expect(events).toEqual(["diff", "health"]);
+    expect(events).toEqual(["diff"]);
     expect((await itemStore.get(userId, "item-1"))?.cursor).toBe("cursor-0");
   });
 
@@ -190,7 +190,13 @@ describe("PlaidService.syncTransactions", () => {
       },
     };
     const transactionStore: TransactionStore = {
-      async applySync() {
+      async applySync() {},
+      async list() {
+        return [];
+      },
+    };
+    const client = {
+      async transactionsSync() {
         throw Object.assign(new Error("login required"), {
           response: {
             data: {
@@ -200,14 +206,6 @@ describe("PlaidService.syncTransactions", () => {
             },
           },
         });
-      },
-      async list() {
-        return [];
-      },
-    };
-    const client = {
-      async transactionsSync() {
-        return syncResponse("cursor-1", true);
       },
     } as unknown as PlaidApi;
     const service = createPlaidService(
@@ -227,6 +225,45 @@ describe("PlaidService.syncTransactions", () => {
         message: "Please reconnect",
       },
     ]);
+  });
+
+  test("does not update Item Health when account snapshot persistence fails", async () => {
+    const events: string[] = [];
+    const itemStore = createItemStore(makeItem(), events);
+    const transactionStore: TransactionStore = {
+      async applySync() {},
+      async list() {
+        return [];
+      },
+    };
+    const accountStore: AccountStore = {
+      async replaceForItem() {
+        events.push("accounts");
+        throw new Error("snapshot write failed");
+      },
+      async list() {
+        return [];
+      },
+    };
+    const client = {
+      async transactionsSync() {
+        return syncResponse("cursor-1");
+      },
+      async accountsGet() {
+        return { data: { accounts: [] } };
+      },
+    } as unknown as PlaidApi;
+    const service = createPlaidService(
+      itemStore,
+      transactionStore,
+      accountStore,
+      client,
+    );
+
+    await expect(service.syncTransactions(userId, "item-1")).rejects.toThrow(
+      "snapshot write failed",
+    );
+    expect(events).toEqual(["cursor", "accounts"]);
   });
 
   test("serializes concurrent syncs for the same Item", async () => {

@@ -42,6 +42,7 @@ function makeAccount(itemId: string, accountId: string) {
     currentBalance: 100,
     availableBalance: 90,
     isoCurrencyCode: "USD",
+    updatedAt: "2026-07-02T00:00:00.000Z",
   };
 }
 
@@ -87,7 +88,8 @@ describe("accounts", () => {
       "account-1",
       "account-2",
     ]);
-    expect(listed[0]?.updatedAt).toBe(listed[1]?.updatedAt);
+    expect(listed[0]?.updatedAt).toBe("2026-07-02T00:00:00.000Z");
+    expect(listed[1]?.updatedAt).toBe("2026-07-02T00:00:00.000Z");
 
     const replacementAccounts = [makeAccount(item.itemId, "account-3")];
     await t.mutation(api.accounts.replaceForItem, {

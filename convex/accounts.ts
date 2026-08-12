@@ -15,6 +15,7 @@ const linkedAccount = v.object({
   currentBalance: v.union(v.number(), v.null()),
   availableBalance: v.union(v.number(), v.null()),
   isoCurrencyCode: v.union(v.string(), v.null()),
+  updatedAt: v.string(),
 });
 
 function toLinkedAccount(doc: Doc<"accounts">) {
@@ -76,7 +77,6 @@ export const replaceForItem = mutation({
       }
     }
 
-    const updatedAt = new Date().toISOString();
     for (const account of accounts) {
       await ctx.db.insert("accounts", {
         userId: item.userId,
@@ -90,7 +90,7 @@ export const replaceForItem = mutation({
         currentBalance: account.currentBalance,
         availableBalance: account.availableBalance,
         isoCurrencyCode: account.isoCurrencyCode,
-        updatedAt,
+        updatedAt: account.updatedAt,
       });
     }
   },

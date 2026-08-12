@@ -132,8 +132,8 @@ export class PlaidService {
       const accounts = await this.fetchAccountsFromPlaid(userId, item.itemId);
       await this.persistAccountsSnapshot(userId, item.itemId, accounts);
       await this.persistItemHealth(userId, item.itemId, HEALTHY_ITEM);
-    } catch (error) {
-      await this.persistItemHealth(userId, item.itemId, toItemHealth(error));
+    } catch {
+      // The Item is linked; a later sync can retry the account snapshot.
     }
 
     return item;
@@ -165,21 +165,24 @@ export class PlaidService {
   }
 
   async refreshBalances(userId: string, itemId: string): Promise<LinkedAccount[]> {
+    const accessToken = await this.getDecryptedAccessToken(userId, itemId);
+    let response;
+
     try {
-      const accessToken = await this.getDecryptedAccessToken(userId, itemId);
-      const response = await this.client.accountsBalanceGet({
+      response = await this.client.accountsBalanceGet({
         access_token: accessToken,
       });
-      const accounts = stampAccounts(
-        response.data.accounts.map((account) => mapAccount(account, itemId)),
-      );
-      await this.persistAccountsSnapshot(userId, itemId, accounts);
-      await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
-      return accounts;
     } catch (error) {
       await this.persistItemHealth(userId, itemId, toItemHealth(error));
       throw error;
     }
+
+    const accounts = stampAccounts(
+      response.data.accounts.map((account) => mapAccount(account, itemId)),
+    );
+    await this.persistAccountsSnapshot(userId, itemId, accounts);
+    await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
+    return accounts;
   }
 
   async syncTransactions(
@@ -187,16 +190,11 @@ export class PlaidService {
     itemId: string,
     options: SyncTransactionsOptions = {},
   ): Promise<SyncTransactionsResult> {
-    try {
-      const result = await withItemSyncLock(itemId, () =>
-        this.runSyncTransactions(userId, itemId, options),
-      );
-      await this.refreshStoredAccountsSnapshot(userId, itemId);
-      return result;
-    } catch (error) {
-      await this.persistItemHealth(userId, itemId, toItemHealth(error));
-      throw error;
-    }
+    const result = await withItemSyncLock(itemId, () =>
+      this.runSyncTransactions(userId, itemId, options),
+    );
+    await this.refreshStoredAccountsSnapshot(userId, itemId);
+    return result;
   }
 
   private async runSyncTransactions(
@@ -236,7 +234,13 @@ export class PlaidService {
       };
     };
 
-    const result = await runTransactionsSync(fetchPage, initialCursor);
+    let result;
+    try {
+      result = await runTransactionsSync(fetchPage, initialCursor);
+    } catch (error) {
+      await this.persistItemHealth(userId, itemId, toItemHealth(error));
+      throw error;
+    }
 
     if (result.status === "product_not_ready") {
       return { diff: emptyDiff(), hasUpdates: false };
@@ -260,7 +264,15 @@ export class PlaidService {
     itemId: string,
   ): Promise<LinkedAccount[]> {
     const accessToken = await this.getDecryptedAccessToken(userId, itemId);
-    const response = await this.client.accountsGet({ access_token: accessToken });
+    let response;
+
+    try {
+      response = await this.client.accountsGet({ access_token: accessToken });
+    } catch (error) {
+      await this.persistItemHealth(userId, itemId, toItemHealth(error));
+      throw error;
+    }
+
     return stampAccounts(
       response.data.accounts.map((account) => mapAccount(account, itemId)),
     );
@@ -270,14 +282,9 @@ export class PlaidService {
     userId: string,
     itemId: string,
   ): Promise<void> {
-    try {
-      const accounts = await this.fetchAccountsFromPlaid(userId, itemId);
-      await this.persistAccountsSnapshot(userId, itemId, accounts);
-      await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
-    } catch (error) {
-      await this.persistItemHealth(userId, itemId, toItemHealth(error));
-      throw error;
-    }
+    const accounts = await this.fetchAccountsFromPlaid(userId, itemId);
+    await this.persistAccountsSnapshot(userId, itemId, accounts);
+    await this.persistItemHealth(userId, itemId, HEALTHY_ITEM);
   }
 
   private async persistAccountsSnapshot(
