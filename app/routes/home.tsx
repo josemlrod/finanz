@@ -2,6 +2,8 @@ import { SignOutButton } from '@clerk/react-router';
 import { useSearchParams } from 'react-router';
 import type { Route } from './+types/home';
 import { PlaidLinkButton } from '~/components/plaid-link';
+import { AutoSync } from '~/components/dashboard/auto-sync';
+import { RefreshTransactionsButton } from '~/components/dashboard/refresh-transactions-button';
 import { type DashboardItemData } from '~/components/dashboard/item-panel';
 import {
   getAccountStore,
@@ -15,10 +17,7 @@ import { MonthSummary } from '~/components/month-summary';
 import { SpendingAreaChart } from '~/components/spending-area-chart';
 import { buildDashboardModel } from '~/lib/dashboard';
 import { requirePageAuth } from '~/lib/auth.server';
-import {
-  currentDateString,
-  previousYearMonth,
-} from '~/lib/transactions';
+import { currentDateString, previousYearMonth } from '~/lib/transactions';
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -83,6 +82,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const transactions = items.flatMap((item) => item.transactions);
+  console.log('transactions', transactions);
 
   const model = buildDashboardModel(transactions);
 
@@ -117,6 +117,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
+          {items.map((item) => (
+            <RefreshTransactionsButton
+              key={item.itemId}
+              itemId={item.itemId}
+              label={
+                items.length === 1
+                  ? 'Refresh transactions'
+                  : `Refresh ${item.institutionName}`
+              }
+              disabled={item.health.state !== 'ok'}
+            />
+          ))}
           <SignOutButton redirectUrl='/sign-in'>
             <button
               type='button'
@@ -128,6 +140,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <PlaidLinkButton className='rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition duration-200 ease-out hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white' />
         </div>
       </header>
+
+      {items.map((item) => (
+        <AutoSync
+          key={item.itemId}
+          itemId={item.itemId}
+          enabled={item.status === 'loading' && item.health.state === 'ok'}
+        />
+      ))}
 
       <div className='space-y-6'>
         <MonthSummary summary={model.summary} />
