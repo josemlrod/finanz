@@ -27,6 +27,25 @@ export type MonthSpendSummary = {
   monthLabel: string;
 };
 
+export type DashboardPeriod = 'month' | 'last7' | 'end';
+
+export type DashboardMonthBoundary = {
+  month: string;
+  previousMonth: string;
+  isCurrentMonth: boolean;
+  throughDay: number;
+  comparisonThroughDay: number;
+  startDate: string;
+  endDate: string;
+  comparisonStartDate: string;
+  comparisonEndDate: string;
+};
+
+export type TransactionPeriodRange = {
+  startDate: string;
+  endDate: string;
+};
+
 const CATEGORY_COLORS = [
   'var(--chart-1)',
   'var(--chart-2)',
@@ -80,12 +99,127 @@ function lastDayOfMonth(yearMonth: string) {
   return new Date(year, month, 0).getDate();
 }
 
-function formatMonthLabel(yearMonth: string) {
+export function formatMonthLabel(yearMonth: string) {
   const [year, month] = yearMonth.split('-').map(Number);
   return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
   });
+}
+
+export function isYearMonth(value: string): boolean {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return false;
+
+  const [year] = value.split('-').map(Number);
+  return year >= 1 && year <= 9999;
+}
+
+export function transactionMonths(transactions: Transaction[]): string[] {
+  return [
+    ...new Set(
+      transactions
+        .map((transaction) => transaction.date.slice(0, 7))
+        .filter(isYearMonth),
+    ),
+  ].sort((a, b) => b.localeCompare(a));
+}
+
+export function dashboardMonthBoundary(
+  month: string,
+  today: string = currentDateString(),
+): DashboardMonthBoundary {
+  const previousMonth = previousYearMonth(month);
+  const isCurrentMonth = today.startsWith(`${month}-`);
+  const throughDay = isCurrentMonth
+    ? dayOfMonth(today)
+    : lastDayOfMonth(month);
+  const comparisonThroughDay = isCurrentMonth
+    ? Math.min(throughDay, lastDayOfMonth(previousMonth))
+    : lastDayOfMonth(previousMonth);
+
+  return {
+    month,
+    previousMonth,
+    isCurrentMonth,
+    throughDay,
+    comparisonThroughDay,
+    startDate: `${month}-01`,
+    endDate: `${month}-${String(throughDay).padStart(2, '0')}`,
+    comparisonStartDate: `${previousMonth}-01`,
+    comparisonEndDate: `${previousMonth}-${String(comparisonThroughDay).padStart(2, '0')}`,
+  };
+}
+
+function dateDaysBefore(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const result = new Date(Date.UTC(year, month - 1, day - days));
+  return result.toISOString().slice(0, 10);
+}
+
+export function transactionPeriodRange(
+  boundary: DashboardMonthBoundary,
+  period: DashboardPeriod,
+): TransactionPeriodRange {
+  if (period === 'end') {
+    return { startDate: boundary.endDate, endDate: boundary.endDate };
+  }
+
+  if (period === 'last7') {
+    const sevenDayStart = dateDaysBefore(boundary.endDate, 6);
+    return {
+      startDate:
+        sevenDayStart < boundary.startDate
+          ? boundary.startDate
+          : sevenDayStart,
+      endDate: boundary.endDate,
+    };
+  }
+
+  return { startDate: boundary.startDate, endDate: boundary.endDate };
+}
+
+export function transactionCategoryKey(transaction: Transaction): string {
+  return (
+    transaction.personalFinanceCategory?.primary.toLowerCase() ??
+    'uncategorized'
+  );
+}
+
+export function filterDashboardTransactions(
+  transactions: Transaction[],
+  boundary: DashboardMonthBoundary,
+  period: DashboardPeriod,
+  categoryKey: string | 'all',
+  query: string,
+): Transaction[] {
+  const range = transactionPeriodRange(boundary, period);
+  const normalizedQuery = query.trim().toLowerCase();
+
+  return transactions
+    .filter((transaction) => {
+      if (transaction.amount <= 0) return false;
+      if (transaction.date < range.startDate || transaction.date > range.endDate) {
+        return false;
+      }
+      if (
+        categoryKey !== 'all' &&
+        transactionCategoryKey(transaction) !== categoryKey
+      ) {
+        return false;
+      }
+      if (!normalizedQuery) return true;
+
+      return [
+        transaction.merchantName,
+        transaction.name,
+        transaction.personalFinanceCategory?.primary,
+        transaction.personalFinanceCategory?.detailed,
+      ].some((value) => value?.toLowerCase().includes(normalizedQuery));
+    })
+    .sort((a, b) => {
+      const byDate = b.date.localeCompare(a.date);
+      return byDate || a.transactionId.localeCompare(b.transactionId);
+    });
 }
 
 function formatDayLabel(date: string) {
@@ -178,21 +312,15 @@ export function monthSpendSummary(
   month: string,
   today: string = currentDateString(),
 ): MonthSpendSummary {
-  const isCurrentMonth = today.startsWith(month);
-  const cutoffDay = isCurrentMonth
-    ? dayOfMonth(today)
-    : lastDayOfMonth(month);
-
-  const total = sumOutflows(transactions, month, cutoffDay);
-  const previousMonth = previousYearMonth(month);
-  const previousThroughDay = Math.min(cutoffDay, lastDayOfMonth(previousMonth));
+  const boundary = dashboardMonthBoundary(month, today);
+  const total = sumOutflows(transactions, month, boundary.throughDay);
   const previousTotal = sumOutflows(
     transactions,
-    previousMonth,
-    previousThroughDay,
+    boundary.previousMonth,
+    boundary.comparisonThroughDay,
   );
   const hasPreviousData = transactions.some((t) =>
-    t.date.startsWith(previousMonth),
+    t.date.startsWith(boundary.previousMonth),
   );
   const deltaAmount = roundMoney(total - previousTotal);
   const deltaPct =

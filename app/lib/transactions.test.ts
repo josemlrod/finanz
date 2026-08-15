@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import type { Transaction } from './plaid/types.ts';
 import {
+  dashboardMonthBoundary,
+  filterDashboardTransactions,
   monthSpendSummary,
   previousYearMonth,
+  transactionMonths,
+  transactionPeriodRange,
   toCategoryData,
   totalsByCategory,
   transactionsForCategory,
@@ -38,6 +42,105 @@ describe('previousYearMonth', () => {
 
   it('rolls January back to December of the previous year', () => {
     expect(previousYearMonth('2026-01')).toBe('2025-12');
+  });
+});
+
+describe('dashboardMonthBoundary', () => {
+  it.each([
+    ['2026-02', '2026-02-28', 28, '2026-01-28'],
+    ['2024-02', '2024-02-29', 29, '2024-01-29'],
+    ['2026-04', '2026-04-30', 30, '2026-03-30'],
+    ['2026-07', '2026-07-31', 31, '2026-06-30'],
+  ])(
+    'ends current month %s at today and compares the same elapsed day',
+    (month, today, throughDay, comparisonEndDate) => {
+      const boundary = dashboardMonthBoundary(month, today);
+
+      expect(boundary.isCurrentMonth).toBe(true);
+      expect(boundary.throughDay).toBe(throughDay);
+      expect(boundary.endDate).toBe(today);
+      expect(boundary.comparisonEndDate).toBe(comparisonEndDate);
+    },
+  );
+
+  it.each([
+    ['2026-02', '2026-02-28', '2026-01-31'],
+    ['2024-02', '2024-02-29', '2024-01-31'],
+    ['2026-04', '2026-04-30', '2026-03-31'],
+    ['2026-07', '2026-07-31', '2026-06-30'],
+  ])(
+    'uses complete selected and previous months for completed month %s',
+    (month, endDate, comparisonEndDate) => {
+      const boundary = dashboardMonthBoundary(month, '2026-08-15');
+
+      expect(boundary.isCurrentMonth).toBe(false);
+      expect(boundary.endDate).toBe(endDate);
+      expect(boundary.comparisonEndDate).toBe(comparisonEndDate);
+    },
+  );
+
+  it('builds inclusive period ranges from the selected boundary', () => {
+    const boundary = dashboardMonthBoundary('2026-08', '2026-08-15');
+
+    expect(transactionPeriodRange(boundary, 'month')).toEqual({
+      startDate: '2026-08-01',
+      endDate: '2026-08-15',
+    });
+    expect(transactionPeriodRange(boundary, 'last7')).toEqual({
+      startDate: '2026-08-09',
+      endDate: '2026-08-15',
+    });
+    expect(transactionPeriodRange(boundary, 'end')).toEqual({
+      startDate: '2026-08-15',
+      endDate: '2026-08-15',
+    });
+  });
+
+  it('clamps last seven days to the first day of the month', () => {
+    const boundary = dashboardMonthBoundary('2026-08', '2026-08-03');
+
+    expect(transactionPeriodRange(boundary, 'last7').startDate).toBe(
+      '2026-08-01',
+    );
+  });
+});
+
+describe('transactionMonths', () => {
+  it('returns every represented valid month newest first', () => {
+    const transactions = [
+      makeTransaction({ transactionId: 'may', amount: 1, date: '2026-05-01' }),
+      makeTransaction({ transactionId: 'jul', amount: 1, date: '2026-07-15' }),
+      makeTransaction({ transactionId: 'duplicate', amount: 1, date: '2026-07-01' }),
+      makeTransaction({ transactionId: 'invalid', amount: 1, date: 'not-a-date' }),
+    ];
+
+    expect(transactionMonths(transactions)).toEqual(['2026-07', '2026-05']);
+  });
+});
+
+describe('filterDashboardTransactions', () => {
+  const boundary = dashboardMonthBoundary('2026-07', '2026-08-15');
+  const transactions = [
+    makeTransaction({
+      transactionId: 'restaurant',
+      amount: 20,
+      date: '2026-07-31',
+      merchantName: 'Corner Cafe',
+    }),
+    makeTransaction({ transactionId: 'old', amount: 10, date: '2026-07-20' }),
+    makeTransaction({ transactionId: 'inflow', amount: -10, date: '2026-07-31' }),
+  ];
+
+  it('applies period, category, search, and outflow filters together', () => {
+    expect(
+      filterDashboardTransactions(
+        transactions,
+        boundary,
+        'last7',
+        'food_and_drink',
+        'cafe',
+      ).map((transaction) => transaction.transactionId),
+    ).toEqual(['restaurant']);
   });
 });
 

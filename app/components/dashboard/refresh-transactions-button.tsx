@@ -4,12 +4,14 @@ interface RefreshTransactionsButtonProps {
   itemId: string;
   label: string;
   disabled: boolean;
+  className?: string;
 }
 
 export function RefreshTransactionsButton({
   itemId,
   label,
   disabled,
+  className,
 }: RefreshTransactionsButtonProps) {
   const fetcher = useFetcher<{ error?: string }>();
   const isRefreshing = fetcher.state !== 'idle';
@@ -21,7 +23,10 @@ export function RefreshTransactionsButton({
         <button
           type='submit'
           disabled={disabled || isRefreshing}
-          className='rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition duration-200 ease-out hover:bg-muted disabled:opacity-50'
+          className={
+            className ??
+            'rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition duration-200 ease-out hover:bg-muted disabled:opacity-50'
+          }
         >
           {isRefreshing ? 'Refreshing...' : label}
         </button>

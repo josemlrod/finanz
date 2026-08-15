@@ -26,261 +26,137 @@ function makeTransaction(
 }
 
 describe('buildDashboardModel', () => {
-  const today = '2026-07-15';
-
-  it('derives month from today and computes summary totals', () => {
+  it('uses one current-month boundary for every model section', () => {
     const transactions = [
       makeTransaction({
-        transactionId: 'jul-1',
+        transactionId: 'current-included',
         amount: 100,
+        date: '2026-08-15',
+      }),
+      makeTransaction({
+        transactionId: 'current-future',
+        amount: 50,
+        date: '2026-08-16',
+      }),
+      makeTransaction({
+        transactionId: 'previous-included',
+        amount: 40,
         date: '2026-07-15',
       }),
       makeTransaction({
-        transactionId: 'jul-2',
-        amount: 50,
-        date: '2026-07-20',
-      }),
-      makeTransaction({
-        transactionId: 'jun-1',
-        amount: 40,
-        date: '2026-06-10',
-      }),
-      makeTransaction({
-        transactionId: 'jun-2',
+        transactionId: 'previous-late',
         amount: 60,
-        date: '2026-06-20',
-      }),
-      makeTransaction({
-        transactionId: 'jun-3',
-        amount: 999,
-        date: '2026-06-25',
+        date: '2026-07-16',
       }),
     ];
 
-    const model = buildDashboardModel(transactions, today);
+    const model = buildDashboardModel(transactions, '2026-08', '2026-08-15');
 
-    expect(model.month).toBe('2026-07');
+    expect(model.boundary.endDate).toBe('2026-08-15');
+    expect(model.boundary.comparisonEndDate).toBe('2026-07-15');
     expect(model.summary.total).toBe(100);
     expect(model.summary.previousTotal).toBe(40);
-    expect(model.summary.hasPreviousData).toBe(true);
-    expect(model.summary.deltaAmount).toBe(60);
-    expect(model.summary.deltaPct).toBe(150);
-    expect(model.summary.monthLabel).toBe('July 2026');
-    expect(
-      model
-        .transactionsForCategory('food_and_drink')
-        .map((transaction) => transaction.transactionId),
-    ).toEqual(['jul-1']);
-    expect(
-      model.daily.data.find((row) => row.date === '2026-07-20')
-        ?.food_and_drink,
-    ).toBe(0);
+    expect(model.categories[0]).toMatchObject({
+      total: 100,
+      previousTotal: 40,
+      deltaAmount: 60,
+      deltaPct: 150,
+    });
+    expect(model.currentCumulative).toHaveLength(15);
+    expect(model.currentCumulative.at(-1)?.total).toBe(100);
+    expect(model.previousCumulative).toHaveLength(15);
+    expect(model.previousCumulative.at(-1)?.total).toBe(40);
+    expect(model.transactions.map((transaction) => transaction.transactionId)).toEqual([
+      'current-included',
+    ]);
   });
 
-  it('builds categoryData sorted descending with previous totals and deltaPct', () => {
+  it('uses complete selected and previous months throughout a historical model', () => {
     const transactions = [
       makeTransaction({
-        transactionId: 'food-jul',
-        amount: 150,
-        date: '2026-07-10',
-        personalFinanceCategory: {
-          primary: 'FOOD_AND_DRINK',
-          detailed: 'FOOD_AND_DRINK_RESTAURANT',
-          confidenceLevel: null,
-        },
+        transactionId: 'april-last-day',
+        amount: 200,
+        date: '2026-04-30',
       }),
       makeTransaction({
-        transactionId: 'travel-jul',
-        amount: 50,
-        date: '2026-07-12',
-        personalFinanceCategory: {
-          primary: 'TRAVEL',
-          detailed: 'TRAVEL_FLIGHTS',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'food-jun',
+        transactionId: 'march-last-day',
         amount: 100,
-        date: '2026-06-05',
-        personalFinanceCategory: {
-          primary: 'FOOD_AND_DRINK',
-          detailed: 'FOOD_AND_DRINK_RESTAURANT',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'travel-jun',
-        amount: 25,
-        date: '2026-06-10',
-        personalFinanceCategory: {
-          primary: 'TRAVEL',
-          detailed: 'TRAVEL_FLIGHTS',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'inflow',
-        amount: -50,
-        date: '2026-07-08',
-      }),
-      makeTransaction({
-        transactionId: 'no-cat',
-        amount: 99,
-        date: '2026-07-09',
-        personalFinanceCategory: null,
+        date: '2026-03-31',
       }),
     ];
 
-    const model = buildDashboardModel(transactions, today);
+    const model = buildDashboardModel(transactions, '2026-04', '2026-08-15');
 
-    expect(model.categoryData).toHaveLength(2);
-    expect(model.categoryData[0]).toMatchObject({
-      key: 'food_and_drink',
-      category: 'Food and drink',
-      total: 150,
+    expect(model.boundary.endDate).toBe('2026-04-30');
+    expect(model.boundary.comparisonEndDate).toBe('2026-03-31');
+    expect(model.summary.total).toBe(200);
+    expect(model.summary.previousTotal).toBe(100);
+    expect(model.categories[0]).toMatchObject({
+      total: 200,
       previousTotal: 100,
-      deltaPct: 50,
-    });
-    expect(model.categoryData[1]).toMatchObject({
-      key: 'travel',
-      category: 'Travel',
-      total: 50,
-      previousTotal: 25,
       deltaPct: 100,
     });
+    expect(model.currentCumulative).toHaveLength(30);
+    expect(model.currentCumulative.at(-1)?.total).toBe(200);
+    expect(model.previousCumulative).toHaveLength(31);
+    expect(model.previousCumulative.at(-1)?.total).toBe(100);
+    expect(model.transactions[0]?.transactionId).toBe('april-last-day');
   });
 
-  it('builds daily series with top-5 categories plus other and detects spending', () => {
-    const categories = [
-      'CAT_A',
-      'CAT_B',
-      'CAT_C',
-      'CAT_D',
-      'CAT_E',
-      'CAT_F',
-    ] as const;
+  it('includes uncategorized outflows so category totals reconcile to spending', () => {
+    const model = buildDashboardModel(
+      [
+        makeTransaction({
+          transactionId: 'categorized',
+          amount: 30,
+          date: '2026-08-10',
+        }),
+        makeTransaction({
+          transactionId: 'uncategorized',
+          amount: 20,
+          date: '2026-08-11',
+          personalFinanceCategory: null,
+        }),
+        makeTransaction({
+          transactionId: 'refund',
+          amount: -10,
+          date: '2026-08-12',
+        }),
+      ],
+      '2026-08',
+      '2026-08-15',
+    );
 
-    const transactions = categories.flatMap((cat, index) => [
-      makeTransaction({
-        transactionId: `${cat}-high`,
-        amount: 100 - index,
-        date: '2026-07-05',
-        personalFinanceCategory: {
-          primary: cat,
-          detailed: `${cat}_DETAIL`,
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: `${cat}-low`,
-        amount: 1,
-        date: '2026-07-10',
-        personalFinanceCategory: {
-          primary: cat,
-          detailed: `${cat}_DETAIL`,
-          confidenceLevel: null,
-        },
-      }),
-    ]);
-
-    const model = buildDashboardModel(transactions, today);
-
-    expect(model.daily.seriesKeys).toHaveLength(6);
-    expect(model.daily.seriesKeys.slice(0, 5)).toEqual([
-      'cat_a',
-      'cat_b',
-      'cat_c',
-      'cat_d',
-      'cat_e',
-    ]);
-    expect(model.daily.seriesKeys[5]).toBe('other');
-    expect(model.daily.hasSpending).toBe(true);
-
-    const dayFive = model.daily.data.find((row) => row.date === '2026-07-05');
-    expect(dayFive?.cat_a).toBe(100);
-    expect(dayFive?.other).toBe(95);
-    expect(dayFive?.cat_f).toBeUndefined();
+    expect(model.summary.total).toBe(50);
+    expect(model.categories.reduce((sum, category) => sum + category.total, 0)).toBe(
+      50,
+    );
+    expect(model.categories.find((category) => category.key === 'uncategorized')).toMatchObject({
+      label: 'Uncategorized',
+      total: 20,
+    });
   });
 
-  it('sets hasSpending false when the month has no outflows', () => {
-    const transactions = [
-      makeTransaction({
-        transactionId: 'inflow',
-        amount: -25,
-        date: '2026-07-05',
-      }),
-      makeTransaction({
-        transactionId: 'other-month',
-        amount: 50,
-        date: '2026-06-01',
-      }),
-    ];
+  it('keeps categories that fell to zero visible for deltas and insights', () => {
+    const model = buildDashboardModel(
+      [
+        makeTransaction({
+          transactionId: 'previous-only',
+          amount: 75,
+          date: '2026-07-10',
+        }),
+      ],
+      '2026-08',
+      '2026-08-15',
+    );
 
-    const model = buildDashboardModel(transactions, today);
-
-    expect(model.categoryData).toHaveLength(0);
-    expect(model.daily.hasSpending).toBe(false);
-  });
-
-  it('returns category transactions through today', () => {
-    const transactions = [
-      makeTransaction({
-        transactionId: 'b',
-        amount: 20,
-        date: '2026-07-10',
-        personalFinanceCategory: {
-          primary: 'FOOD_AND_DRINK',
-          detailed: 'FOOD_AND_DRINK_RESTAURANT',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'a',
-        amount: 10,
-        date: '2026-07-20',
-        personalFinanceCategory: {
-          primary: 'FOOD_AND_DRINK',
-          detailed: 'FOOD_AND_DRINK_RESTAURANT',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'c',
-        amount: 30,
-        date: '2026-07-05',
-        personalFinanceCategory: {
-          primary: 'TRAVEL',
-          detailed: 'TRAVEL_FLIGHTS',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'd',
-        amount: 5,
-        date: '2026-06-01',
-        personalFinanceCategory: {
-          primary: 'FOOD_AND_DRINK',
-          detailed: 'FOOD_AND_DRINK_RESTAURANT',
-          confidenceLevel: null,
-        },
-      }),
-      makeTransaction({
-        transactionId: 'e',
-        amount: -15,
-        date: '2026-07-12',
-        personalFinanceCategory: {
-          primary: 'FOOD_AND_DRINK',
-          detailed: 'FOOD_AND_DRINK_RESTAURANT',
-          confidenceLevel: null,
-        },
-      }),
-    ];
-
-    const model = buildDashboardModel(transactions, today);
-    const result = model.transactionsForCategory('food_and_drink');
-
-    expect(result.map((t) => t.transactionId)).toEqual(['b']);
-    expect(result[0]?.date).toBe('2026-07-10');
+    expect(model.categories[0]).toMatchObject({
+      key: 'food_and_drink',
+      total: 0,
+      previousTotal: 75,
+      deltaAmount: -75,
+      deltaPct: -100,
+    });
+    expect(model.insights.goodTitle).toContain('Food and drink');
   });
 });

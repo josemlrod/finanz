@@ -1,24 +1,17 @@
-import { SignOutButton } from '@clerk/react-router';
-import { useSearchParams } from 'react-router';
+import { redirect, useSearchParams } from 'react-router';
 import type { Route } from './+types/home';
-import { PlaidLinkButton } from '~/components/plaid-link';
 import { AutoSync } from '~/components/dashboard/auto-sync';
-import { RefreshTransactionsButton } from '~/components/dashboard/refresh-transactions-button';
-import { type DashboardItemData } from '~/components/dashboard/item-panel';
+import type { DashboardItemData } from '~/components/dashboard/item-panel';
+import { SignalDashboard } from '~/components/signal-dashboard';
+import { requirePageAuth } from '~/lib/auth.server';
+import { buildDashboardModel } from '~/lib/dashboard';
+import { env } from '~/lib/env.server';
 import {
   getAccountStore,
   getItemStore,
   getTransactionStore,
 } from '~/lib/plaid/wiring.server';
-import { env } from '~/lib/env.server';
-import { CategoryBarChart } from '~/components/category-bar-chart';
-import { CategoryTransactions } from '~/components/category-transactions';
-import { MonthSummary } from '~/components/month-summary';
-import { SpendingAreaChart } from '~/components/spending-area-chart';
-import { TransactionHistory } from '~/components/transaction-history';
-import { buildDashboardModel } from '~/lib/dashboard';
-import { requirePageAuth } from '~/lib/auth.server';
-import { currentDateString, previousYearMonth } from '~/lib/transactions';
+import { currentDateString, transactionMonths } from '~/lib/transactions';
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -29,10 +22,11 @@ export function meta(_args: Route.MetaArgs) {
 
 export async function loader(args: Route.LoaderArgs) {
   const { userId } = await requirePageAuth(args);
-
-  const items = await getItemStore().list(userId);
-  const accounts = await getAccountStore().list(userId);
-  const transactionStore = getTransactionStore();
+  const [items, accounts, transactions] = await Promise.all([
+    getItemStore().list(userId),
+    getAccountStore().list(userId),
+    getTransactionStore().list(userId),
+  ]);
 
   const accountsByItem = new Map<string, typeof accounts>();
   for (const account of accounts) {
@@ -41,15 +35,6 @@ export async function loader(args: Route.LoaderArgs) {
     accountsByItem.set(account.itemId, itemAccounts);
   }
 
-  const today = currentDateString();
-  const month = today.slice(0, 7);
-  const startDate = `${previousYearMonth(month)}-01`;
-  const endDate = today;
-
-  const transactions = await transactionStore.list(userId, undefined, {
-    startDate,
-    endDate,
-  });
   const transactionsByItem = new Map<string, typeof transactions>();
   for (const transaction of transactions) {
     const itemTransactions = transactionsByItem.get(transaction.itemId) ?? [];
@@ -75,31 +60,51 @@ export async function loader(args: Route.LoaderArgs) {
     };
   });
 
-  return { items: dashboardItems, isSandbox: env.PLAID_ENV === 'sandbox' };
+  const today = currentDateString();
+  const availableMonths = transactionMonths(transactions);
+  const requestUrl = new URL(args.request.url);
+  const requestedMonth = requestUrl.searchParams.get('month');
+  if (requestedMonth && !availableMonths.includes(requestedMonth)) {
+    requestUrl.searchParams.delete('month');
+    throw redirect(`${requestUrl.pathname}${requestUrl.search}`);
+  }
+  const currentMonth = today.slice(0, 7);
+  const selectedMonth =
+    (requestedMonth && availableMonths.includes(requestedMonth)
+      ? requestedMonth
+      : null) ??
+    (availableMonths.includes(currentMonth) ? currentMonth : null) ??
+    availableMonths[0] ??
+    currentMonth;
+
+  return {
+    items: dashboardItems,
+    transactions,
+    today,
+    availableMonths,
+    selectedMonth,
+    isSandbox: env.PLAID_ENV === 'sandbox',
+  };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items, isSandbox } = loaderData;
-  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    items,
+    transactions,
+    today,
+    availableMonths,
+    selectedMonth,
+    isSandbox,
+  } = loaderData;
+  const [, setSearchParams] = useSearchParams();
+  const model = buildDashboardModel(transactions, selectedMonth, today);
 
-  const transactions = items.flatMap((item) => item.transactions);
-  console.log('transactions', transactions);
-
-  const model = buildDashboardModel(transactions);
-
-  const selectedDatum = model.categoryData.find(
-    (datum) => datum.key === searchParams.get('category'),
-  );
-
-  function selectCategory(key: string | null) {
+  function selectMonth(month: string) {
     setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (key) {
-          next.set('category', key);
-        } else {
-          next.delete('category');
-        }
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('month', month);
+        next.delete('category');
         return next;
       },
       { preventScrollReset: true },
@@ -107,41 +112,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   }
 
   return (
-    <main className='mx-auto min-h-screen max-w-5xl px-4 py-10'>
-      <header className='mb-8 flex flex-wrap items-center justify-between gap-4'>
-        <div>
-          <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
-            Finanz
-          </h1>
-          <p className='text-sm text-gray-500 dark:text-gray-400'>
-            Personal finance{isSandbox ? ' — Plaid Sandbox' : ''}
-          </p>
-        </div>
-        <div className='flex flex-wrap items-center gap-2'>
-          {items.map((item) => (
-            <RefreshTransactionsButton
-              key={item.itemId}
-              itemId={item.itemId}
-              label={
-                items.length === 1
-                  ? 'Refresh transactions'
-                  : `Refresh ${item.institutionName}`
-              }
-              disabled={item.health.state !== 'ok'}
-            />
-          ))}
-          <SignOutButton redirectUrl='/sign-in'>
-            <button
-              type='button'
-              className='rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition duration-200 ease-out hover:bg-muted disabled:opacity-50'
-            >
-              Sign out
-            </button>
-          </SignOutButton>
-          <PlaidLinkButton className='rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition duration-200 ease-out hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white' />
-        </div>
-      </header>
-
+    <>
       {items.map((item) => (
         <AutoSync
           key={item.itemId}
@@ -149,37 +120,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           enabled={item.status === 'loading' && item.health.state === 'ok'}
         />
       ))}
-
-      <div className='space-y-6'>
-        <MonthSummary summary={model.summary} />
-        <TransactionHistory transactions={transactions} />
-        {model.categoryData.length > 0 ? (
-          <>
-            <CategoryBarChart
-              chartData={model.categoryData}
-              chartConfig={model.categoryChartConfig}
-              selectedKey={selectedDatum?.key ?? null}
-              onSelectCategory={selectCategory}
-            />
-            {selectedDatum ? (
-              <CategoryTransactions
-                categoryKey={selectedDatum.key}
-                categoryLabel={selectedDatum.category}
-                transactions={model.transactionsForCategory(selectedDatum.key)}
-                onClose={() => selectCategory(null)}
-              />
-            ) : null}
-            {model.daily.hasSpending ? (
-              <SpendingAreaChart
-                chartData={model.daily.data}
-                seriesKeys={model.daily.seriesKeys}
-                chartConfig={model.daily.chartConfig}
-                monthLabel={model.daily.monthLabel}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </div>
-    </main>
+      <SignalDashboard
+        key={model.month}
+        model={model}
+        availableMonths={availableMonths}
+        items={items}
+        isSandbox={isSandbox}
+        onMonthChange={selectMonth}
+      />
+    </>
   );
 }
