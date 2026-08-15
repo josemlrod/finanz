@@ -15,6 +15,7 @@ import { CategoryBarChart } from '~/components/category-bar-chart';
 import { CategoryTransactions } from '~/components/category-transactions';
 import { MonthSummary } from '~/components/month-summary';
 import { SpendingAreaChart } from '~/components/spending-area-chart';
+import { TransactionHistory } from '~/components/transaction-history';
 import { buildDashboardModel } from '~/lib/dashboard';
 import { requirePageAuth } from '~/lib/auth.server';
 import { currentDateString, previousYearMonth } from '~/lib/transactions';
@@ -151,6 +152,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
       <div className='space-y-6'>
         <MonthSummary summary={model.summary} />
+        <TransactionHistory transactions={transactions} />
         {model.categoryData.length > 0 ? (
           <>
             <CategoryBarChart
