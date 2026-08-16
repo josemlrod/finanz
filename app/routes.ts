@@ -10,5 +10,6 @@ export default [
     route("sync", "routes/api/plaid/sync.ts"),
     route("refresh-balances", "routes/api/plaid/refresh-balances.ts"),
   ]),
+  route("api/transactions/category", "routes/api/transactions/category.ts"),
   route("*", "routes/not-found.tsx"),
 ] satisfies RouteConfig;

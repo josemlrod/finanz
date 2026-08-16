@@ -11,10 +11,8 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardItemData } from '~/components/dashboard/item-panel';
 import { ItemControls } from '~/components/dashboard/item-controls';
-import type {
-  CumulativeSpendingPoint,
-  DashboardModel,
-} from '~/lib/dashboard';
+import type { CumulativeSpendingPoint, DashboardModel } from '~/lib/dashboard';
+import { PLAID_PRIMARY_CATEGORIES } from '~/lib/plaid/categories';
 import {
   filterDashboardTransactions,
   formatCategoryLabel,
@@ -33,7 +31,10 @@ function formatCurrency(value: number, fractionDigits = 0): string {
   }).format(value);
 }
 
-function formatTransactionAmount(amount: number, currency: string | null): string {
+function formatTransactionAmount(
+  amount: number,
+  currency: string | null,
+): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency ?? 'USD',
@@ -140,12 +141,18 @@ export function SignalDashboard({
   items,
   isSandbox,
   onMonthChange,
+  categoryMutationPending,
+  categoryMutationError,
+  onCategoryChange,
 }: {
   model: DashboardModel;
   availableMonths: string[];
   items: DashboardItemData[];
   isSandbox: boolean;
   onMonthChange: (month: string) => void;
+  categoryMutationPending: boolean;
+  categoryMutationError?: string;
+  onCategoryChange: (transactionId: string, primary: string | null) => void;
 }) {
   const [selected, setSelected] = useState<string | 'all'>('all');
   const [period, setPeriod] = useState<DashboardPeriod>('month');
@@ -196,9 +203,9 @@ export function SignalDashboard({
   }
 
   return (
-    <main className='min-h-screen bg-[#0b0b0e] px-4 pb-16 text-zinc-100 sm:px-7'>
-      <div className='mx-auto max-w-7xl'>
-        <header className='flex min-h-20 flex-wrap items-center justify-between gap-3 py-4'>
+    <main className='min-h-screen bg-[#0b0b0e] px-4 pb-16 text-zinc-100 sm:px-7 lg:h-dvh lg:min-h-0 lg:overflow-hidden lg:pb-0'>
+      <div className='mx-auto max-w-7xl lg:flex lg:h-full lg:min-h-0 lg:flex-col'>
+        <header className='flex min-h-20 flex-wrap items-center justify-between gap-3 py-4 lg:shrink-0'>
           <div className='flex items-center gap-3'>
             <span className='font-heading text-lg font-semibold tracking-tight'>
               Finanz
@@ -219,9 +226,10 @@ export function SignalDashboard({
           </div>
         </header>
 
-        <section className='overflow-hidden rounded-3xl border border-white/10 bg-[#101014]'>
-          <div className='grid lg:grid-cols-[0.68fr_0.32fr]'>
-            <div className='p-6 sm:p-9'>
+        <div className='lg:grid lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-6 lg:pb-6'>
+          <section className='overflow-hidden rounded-3xl border border-white/10 bg-[#101014] lg:min-h-0'>
+            <div className='grid h-full'>
+              <div className='flex h-full min-h-0 flex-col p-6 sm:p-9 lg:p-6'>
               <div className='flex flex-wrap items-start justify-between gap-5'>
                 <div>
                   <p className='text-xs uppercase tracking-[0.16em] text-zinc-500'>
@@ -252,7 +260,9 @@ export function SignalDashboard({
                       <p
                         className={`mt-1 text-xs ${isLower ? 'text-emerald-300/60' : 'text-rose-300/60'}`}
                       >
-                        {deltaPct === null ? 'No percentage' : `${deltaPct.toFixed(1)}%`}
+                        {deltaPct === null
+                          ? 'No percentage'
+                          : `${deltaPct.toFixed(1)}%`}
                         {' · '}
                         {model.boundary.isCurrentMonth
                           ? `through the ${model.boundary.throughDay}${ordinalSuffix(model.boundary.throughDay)}`
@@ -265,10 +275,10 @@ export function SignalDashboard({
                 </div>
               </div>
 
-              <div className='mt-10'>
+              <div className='mt-6 flex min-h-0 flex-1 flex-col'>
                 <svg
                   viewBox='0 0 760 290'
-                  className='h-auto w-full overflow-visible'
+                  className='h-full min-h-0 w-full overflow-visible'
                   role='img'
                   aria-label={`Cumulative spending through ${model.shortMonthLabel} ${model.boundary.throughDay} compared with ${model.previousMonthLabel}`}
                 >
@@ -321,7 +331,7 @@ export function SignalDashboard({
                     {model.boundary.throughDay}
                   </text>
                 </svg>
-                <div className='mt-1 flex items-center gap-5 text-xs text-zinc-500'>
+                <div className='mt-1 flex shrink-0 items-center gap-5 text-xs text-zinc-500'>
                   <span className='flex items-center gap-2'>
                     <i className='h-0.5 w-5 bg-indigo-400' />
                     {model.shortMonthLabel}
@@ -332,61 +342,15 @@ export function SignalDashboard({
                   </span>
                 </div>
               </div>
-            </div>
-
-            <aside className='border-t border-white/10 bg-white/[0.018] p-6 sm:p-9 lg:border-l lg:border-t-0'>
-              <p className='text-xs uppercase tracking-[0.16em] text-zinc-500'>
-                Read the month
-              </p>
-              <h1 className='mt-5 font-heading text-3xl font-semibold leading-tight tracking-tight'>
-                {model.insights.headline}
-              </h1>
-              <p className='mt-4 text-sm leading-6 text-zinc-400'>
-                {model.insights.summary}
-              </p>
-              <div className='mt-8 space-y-3'>
-                <div className='flex gap-3 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] p-4'>
-                  <span className='mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-black'>
-                    <Check className='size-3' />
-                  </span>
-                  <div>
-                    <p className='text-sm font-medium'>
-                      {model.insights.goodTitle}
-                    </p>
-                    <p className='mt-1 text-xs leading-5 text-zinc-500'>
-                      {model.insights.goodDetail}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type='button'
-                  onClick={inspectWatchCategory}
-                  disabled={!model.insights.watchCategory}
-                  className='group flex w-full gap-3 rounded-xl border border-rose-400/15 bg-rose-400/[0.06] p-4 text-left transition-colors duration-200 ease-out hover:bg-rose-400/10 disabled:cursor-default'
-                >
-                  <ArrowUpRight className='mt-0.5 size-5 shrink-0 text-rose-400' />
-                  <div className='flex-1'>
-                    <p className='text-sm font-medium'>
-                      {model.insights.watchTitle}
-                    </p>
-                    <p className='mt-1 text-xs leading-5 text-zinc-500'>
-                      {model.insights.watchDetail}
-                    </p>
-                  </div>
-                  {model.insights.watchCategory ? (
-                    <ChevronRight className='size-4 self-center text-zinc-600 transition-transform duration-200 ease-out group-hover:translate-x-0.5' />
-                  ) : null}
-                </button>
               </div>
-            </aside>
-          </div>
-        </section>
+            </div>
+          </section>
 
-        <section
-          ref={workspaceRef}
-          className='mt-6 grid min-h-[680px] scroll-mt-5 overflow-hidden rounded-2xl border border-white/10 bg-[#101013] lg:grid-cols-[280px_1fr]'
-        >
-          <aside className='border-b border-white/10 lg:border-b-0 lg:border-r'>
+          <section
+            ref={workspaceRef}
+            className='mt-6 grid min-h-[680px] scroll-mt-5 overflow-hidden rounded-2xl border border-white/10 bg-[#101013] lg:mt-0 lg:min-h-0 lg:grid-cols-[280px_1fr]'
+          >
+          <aside className='border-b border-white/10 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r'>
             <div className='border-b border-white/10 p-4'>
               <p className='text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-600'>
                 Categories
@@ -449,7 +413,7 @@ export function SignalDashboard({
             </div>
           </aside>
 
-          <div className='min-w-0'>
+          <div className='flex min-h-0 min-w-0 flex-col'>
             <div className='flex flex-wrap items-center gap-2 border-b border-white/10 p-3'>
               <div className='relative min-w-[220px] flex-1 sm:max-w-sm'>
                 <Search className='absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-zinc-600' />
@@ -509,10 +473,17 @@ export function SignalDashboard({
                 <h2 className='font-heading text-lg font-semibold'>
                   {selected === 'all'
                     ? 'All Transactions'
-                    : categoryByKey.get(selected)?.label}
+                    : (categoryByKey.get(selected)?.label ??
+                      formatCategoryLabel(selected))}
                 </h2>
                 <p className='mt-1 text-[11px] text-zinc-600'>
-                  {visible.length} results · All Linked Accounts
+                  {categoryMutationError ? (
+                    <span className='text-rose-400' role='alert'>
+                      Couldn&apos;t update category: {categoryMutationError}
+                    </span>
+                  ) : (
+                    <>{visible.length} results · All Linked Accounts</>
+                  )}
                 </p>
               </div>
               <div className='text-right'>
@@ -523,7 +494,7 @@ export function SignalDashboard({
               </div>
             </div>
 
-            <div className='overflow-x-auto'>
+            <div className='min-h-0 flex-1 overflow-auto'>
               <table className='w-full min-w-[720px] text-left'>
                 <thead className='border-b border-white/10 text-[10px] uppercase tracking-[0.12em] text-zinc-600'>
                   <tr>
@@ -551,7 +522,9 @@ export function SignalDashboard({
                           </p>
                           <p className='mt-1 text-[10px] text-zinc-600'>
                             {transaction.pending ? 'Pending · ' : ''}
-                            {transaction.personalFinanceCategory
+                            {transaction.userCategoryPrimary
+                              ? 'Manually categorized'
+                              : transaction.personalFinanceCategory
                               ? formatCategoryLabel(
                                   transaction.personalFinanceCategory.detailed,
                                 )
@@ -559,7 +532,9 @@ export function SignalDashboard({
                           </p>
                         </td>
                         <td className='px-5 py-4'>
-                          <span className='inline-flex items-center gap-2 text-zinc-400'>
+                          <label
+                            className={`relative inline-flex items-center gap-2 text-zinc-400 ${transaction.pending || categoryMutationPending ? '' : 'cursor-pointer hover:text-white'}`}
+                          >
                             <i
                               className='size-1.5 rounded-full'
                               style={{
@@ -567,7 +542,36 @@ export function SignalDashboard({
                               }}
                             />
                             {category?.label ?? 'Uncategorized'}
-                          </span>
+                            {!transaction.pending ? (
+                              <>
+                                <ChevronDown className='size-3 text-zinc-600' />
+                                <select
+                                  aria-label={`Category for ${transaction.merchantName ?? transaction.name}`}
+                                  value={transaction.userCategoryPrimary ?? ''}
+                                  disabled={categoryMutationPending}
+                                  onChange={(event) =>
+                                    onCategoryChange(
+                                      transaction.transactionId,
+                                      event.target.value || null,
+                                    )
+                                  }
+                                  className='absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default'
+                                >
+                                  <option value=''>
+                                    Use Plaid category
+                                    {transaction.personalFinanceCategory
+                                      ? ` (${formatCategoryLabel(transaction.personalFinanceCategory.primary)})`
+                                      : ''}
+                                  </option>
+                                  {PLAID_PRIMARY_CATEGORIES.map((primary) => (
+                                    <option key={primary} value={primary}>
+                                      {formatCategoryLabel(primary)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </>
+                            ) : null}
+                          </label>
                         </td>
                         <td className='px-5 py-4 text-right font-medium tabular-nums'>
                           {formatTransactionAmount(
@@ -596,7 +600,8 @@ export function SignalDashboard({
               ) : null}
             </div>
           </div>
-        </section>
+          </section>
+        </div>
       </div>
     </main>
   );

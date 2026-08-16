@@ -1,4 +1,4 @@
-import { redirect, useSearchParams } from 'react-router';
+import { redirect, useFetcher, useSearchParams } from 'react-router';
 import type { Route } from './+types/home';
 import { AutoSync } from '~/components/dashboard/auto-sync';
 import type { DashboardItemData } from '~/components/dashboard/item-panel';
@@ -97,7 +97,28 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     isSandbox,
   } = loaderData;
   const [, setSearchParams] = useSearchParams();
-  const model = buildDashboardModel(transactions, selectedMonth, today);
+  const categoryFetcher = useFetcher<{
+    error?: string;
+    transactionId?: string;
+    primary?: string | null;
+  }>();
+  const optimisticTransactionId = categoryFetcher.formData?.get('transactionId');
+  const optimisticPrimary = categoryFetcher.formData?.get('primary');
+  const optimisticTransactions = transactions.map((transaction) =>
+    typeof optimisticTransactionId === 'string' &&
+    transaction.transactionId === optimisticTransactionId &&
+    typeof optimisticPrimary === 'string'
+      ? {
+          ...transaction,
+          userCategoryPrimary: optimisticPrimary || null,
+        }
+      : transaction,
+  );
+  const model = buildDashboardModel(
+    optimisticTransactions,
+    selectedMonth,
+    today,
+  );
 
   function selectMonth(month: string) {
     setSearchParams(
@@ -108,6 +129,16 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         return next;
       },
       { preventScrollReset: true },
+    );
+  }
+
+  function changeTransactionCategory(
+    transactionId: string,
+    primary: string | null,
+  ) {
+    categoryFetcher.submit(
+      { transactionId, primary: primary ?? '' },
+      { method: 'post', action: '/api/transactions/category' },
     );
   }
 
@@ -127,6 +158,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         items={items}
         isSandbox={isSandbox}
         onMonthChange={selectMonth}
+        categoryMutationPending={categoryFetcher.state !== 'idle'}
+        categoryMutationError={categoryFetcher.data?.error}
+        onCategoryChange={changeTransactionCategory}
       />
     </>
   );

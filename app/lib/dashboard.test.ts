@@ -159,4 +159,27 @@ describe('buildDashboardModel', () => {
     });
     expect(model.insights.goodTitle).toContain('Food and drink');
   });
+
+  it('uses user category overrides in dashboard totals', () => {
+    const model = buildDashboardModel(
+      [
+        makeTransaction({
+          transactionId: 'corrected',
+          amount: 25,
+          date: '2026-08-10',
+          userCategoryPrimary: 'PERSONAL_CARE',
+        }),
+      ],
+      '2026-08',
+      '2026-08-15',
+    );
+
+    expect(model.categories).toEqual([
+      expect.objectContaining({
+        key: 'personal_care',
+        label: 'Personal care',
+        total: 25,
+      }),
+    ]);
+  });
 });

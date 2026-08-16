@@ -142,6 +142,52 @@ describe('filterDashboardTransactions', () => {
       ).map((transaction) => transaction.transactionId),
     ).toEqual(['restaurant']);
   });
+
+  it('filters by a user category override instead of the Plaid category', () => {
+    const overridden = makeTransaction({
+      transactionId: 'overridden',
+      amount: 20,
+      date: '2026-07-31',
+      userCategoryPrimary: 'PERSONAL_CARE',
+    });
+
+    expect(
+      filterDashboardTransactions(
+        [overridden],
+        boundary,
+        'month',
+        'personal_care',
+        '',
+      ),
+    ).toEqual([overridden]);
+    expect(
+      filterDashboardTransactions(
+        [overridden],
+        boundary,
+        'month',
+        'food_and_drink',
+        '',
+      ),
+    ).toEqual([]);
+    expect(
+      filterDashboardTransactions(
+        [overridden],
+        boundary,
+        'month',
+        'all',
+        'personal care',
+      ),
+    ).toEqual([overridden]);
+    expect(
+      filterDashboardTransactions(
+        [overridden],
+        boundary,
+        'month',
+        'all',
+        'food and drink',
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe('totalsByCategory', () => {

@@ -180,7 +180,10 @@ export function transactionPeriodRange(
 
 export function transactionCategoryKey(transaction: Transaction): string {
   return (
-    transaction.personalFinanceCategory?.primary.toLowerCase() ??
+    (
+      transaction.userCategoryPrimary ??
+      transaction.personalFinanceCategory?.primary
+    )?.toLowerCase() ??
     'uncategorized'
   );
 }
@@ -209,11 +212,20 @@ export function filterDashboardTransactions(
       }
       if (!normalizedQuery) return true;
 
+      const effectivePrimary =
+        transaction.userCategoryPrimary ??
+        transaction.personalFinanceCategory?.primary;
+      const effectiveDetailed = transaction.userCategoryPrimary
+        ? null
+        : transaction.personalFinanceCategory?.detailed;
+
       return [
         transaction.merchantName,
         transaction.name,
-        transaction.personalFinanceCategory?.primary,
-        transaction.personalFinanceCategory?.detailed,
+        effectivePrimary,
+        effectivePrimary ? formatCategoryLabel(effectivePrimary) : null,
+        effectiveDetailed,
+        effectiveDetailed ? formatCategoryLabel(effectiveDetailed) : null,
       ].some((value) => value?.toLowerCase().includes(normalizedQuery));
     })
     .sort((a, b) => {

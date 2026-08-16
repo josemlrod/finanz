@@ -26,6 +26,19 @@ export function createConvexTransactionStore(): TransactionStore {
       });
     },
 
+    async setCategoryOverride(
+      userId: string,
+      transactionId: string,
+      primary: string | null,
+    ): Promise<void> {
+      await client.mutation(api.transactions.setCategoryOverride, {
+        userId,
+        secret,
+        transactionId,
+        primary,
+      });
+    },
+
     async list(
       userId: string,
       itemId?: string,

@@ -46,6 +46,7 @@ function toTransaction(doc: Doc<"transactions">) {
     merchantName: doc.merchantName,
     pending: doc.pending,
     personalFinanceCategory: doc.personalFinanceCategory,
+    userCategoryPrimary: doc.userCategoryPrimary ?? null,
     categoryIconUrl: doc.categoryIconUrl,
     logoUrl: doc.logoUrl,
     website: doc.website,
@@ -153,6 +154,35 @@ export const applySync = mutation({
     for (const transactionId of diff.removed) {
       await removeTransaction(ctx, convexUserId, transactionId);
     }
+  },
+});
+
+export const setCategoryOverride = mutation({
+  args: {
+    userId: v.string(),
+    secret: v.string(),
+    transactionId: v.string(),
+    primary: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { userId, secret, transactionId, primary }) => {
+    requireInternalSecret(secret);
+    const convexUserId = await resolveUserId(ctx, userId);
+    const existing = await ctx.db
+      .query("transactions")
+      .withIndex("by_transactionId", (q) => q.eq("transactionId", transactionId))
+      .filter((q) => q.eq(q.field("userId"), convexUserId))
+      .first();
+
+    if (!existing) {
+      throw new Error(`Transaction not found: ${transactionId}`);
+    }
+    if (existing.pending) {
+      throw new Error("Pending Transactions cannot be categorized");
+    }
+
+    await ctx.db.patch(existing._id, {
+      userCategoryPrimary: primary ?? undefined,
+    });
   },
 });
 

@@ -48,6 +48,7 @@ export default defineSchema({
     merchantName: v.union(v.string(), v.null()),
     pending: v.boolean(),
     personalFinanceCategory,
+    userCategoryPrimary: v.optional(v.string()),
     categoryIconUrl: v.union(v.string(), v.null()),
     logoUrl: v.union(v.string(), v.null()),
     website: v.union(v.string(), v.null()),

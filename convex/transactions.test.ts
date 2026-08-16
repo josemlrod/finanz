@@ -169,6 +169,89 @@ describe("transactions", () => {
     expect(transactions[0]?.pending).toBe(false);
   });
 
+  test("category overrides survive sync and can be reset", async () => {
+    process.env.CONVEX_INTERNAL_SECRET = secret;
+    const t = convexTest(schema, modules);
+    await seedItem(t, firstUserId);
+
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId,
+      diff: { added: [makeTransaction()], modified: [], removed: [] },
+    });
+    await t.mutation(api.transactions.setCategoryOverride, {
+      userId: firstUserId,
+      secret,
+      transactionId: "tx_1",
+      primary: "PERSONAL_CARE",
+    });
+
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId,
+      diff: {
+        added: [],
+        modified: [
+          {
+            ...makeTransaction(),
+            personalFinanceCategory: {
+              primary: "TRAVEL",
+              detailed: "TRAVEL_LODGING",
+              confidenceLevel: "HIGH",
+            },
+          },
+        ],
+        removed: [],
+      },
+    });
+
+    let transactions = await t.query(api.transactions.list, {
+      userId: firstUserId,
+      secret,
+    });
+    expect(transactions[0]?.personalFinanceCategory?.primary).toBe("TRAVEL");
+    expect(transactions[0]?.userCategoryPrimary).toBe("PERSONAL_CARE");
+
+    await t.mutation(api.transactions.setCategoryOverride, {
+      userId: firstUserId,
+      secret,
+      transactionId: "tx_1",
+      primary: null,
+    });
+    transactions = await t.query(api.transactions.list, {
+      userId: firstUserId,
+      secret,
+    });
+    expect(transactions[0]?.userCategoryPrimary).toBeNull();
+  });
+
+  test("rejects category overrides for pending Transactions", async () => {
+    process.env.CONVEX_INTERNAL_SECRET = secret;
+    const t = convexTest(schema, modules);
+    await seedItem(t, firstUserId);
+    await t.mutation(api.transactions.applySync, {
+      userId: firstUserId,
+      secret,
+      itemId,
+      diff: {
+        added: [makeTransaction({ pending: true })],
+        modified: [],
+        removed: [],
+      },
+    });
+
+    await expect(
+      t.mutation(api.transactions.setCategoryOverride, {
+        userId: firstUserId,
+        secret,
+        transactionId: "tx_1",
+        primary: "PERSONAL_CARE",
+      }),
+    ).rejects.toThrow("Pending Transactions cannot be categorized");
+  });
+
   test("list filters by date range using the by_userId_date index", async () => {
     process.env.CONVEX_INTERNAL_SECRET = secret;
     const t = convexTest(schema, modules);
@@ -239,20 +322,27 @@ describe("transactions", () => {
       diff: { added: [secondTransaction], modified: [], removed: [] },
     });
 
+    await t.mutation(api.transactions.setCategoryOverride, {
+      userId: firstUserId,
+      secret,
+      transactionId: "tx_shared",
+      primary: "PERSONAL_CARE",
+    });
+
     expect(
       await t.query(api.transactions.list, {
         userId: firstUserId,
         secret,
         itemId,
       }),
-    ).toEqual([firstTransaction]);
+    ).toEqual([{ ...firstTransaction, userCategoryPrimary: "PERSONAL_CARE" }]);
     expect(
       await t.query(api.transactions.list, {
         userId: secondUserId,
         secret,
         itemId: "item-second",
       }),
-    ).toEqual([secondTransaction]);
+    ).toEqual([{ ...secondTransaction, userCategoryPrimary: null }]);
   });
 
   test("applySync throws when the item is missing", async () => {

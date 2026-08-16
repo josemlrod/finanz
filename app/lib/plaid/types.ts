@@ -39,6 +39,7 @@ export interface Transaction {
   merchantName: string | null;
   pending: boolean;
   personalFinanceCategory: PersonalFinanceCategory | null;
+  userCategoryPrimary?: string | null;
   categoryIconUrl: string | null;
   logoUrl: string | null;
   website: string | null;
@@ -88,6 +89,11 @@ export interface TransactionListOptions {
 
 export interface TransactionStore {
   applySync(userId: string, itemId: string, diff: SyncDiff): Promise<void>;
+  setCategoryOverride(
+    userId: string,
+    transactionId: string,
+    primary: string | null,
+  ): Promise<void>;
   list(
     userId: string,
     itemId?: string,
