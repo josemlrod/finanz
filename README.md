@@ -4,16 +4,16 @@ Clerk-authenticated personal finance dashboard with per-user data isolation. Lin
 
 ## Stack
 
-| Layer | Choice |
-|---|---|
-| Runtime / package manager | Bun |
-| Framework | React 19 + React Router v8 (Framework Mode, SSR) |
-| Build | Vite |
-| Styling | Tailwind CSS v4 |
-| Plaid | `plaid` (server SDK) + `react-plaid-link` (client) |
-| Authentication | Clerk |
-| Persistence | Convex (users, Items, Transactions, and Linked Account snapshots, all user-scoped) |
-| Language | TypeScript (strict) |
+| Layer                     | Choice                                                                      |
+| ------------------------- | --------------------------------------------------------------------------- |
+| Runtime / package manager | Bun                                                                         |
+| Framework                 | React 19 + React Router v8 (Framework Mode, SSR)                            |
+| Build                     | Vite                                                                        |
+| Styling                   | Tailwind CSS v4                                                             |
+| Plaid                     | `plaid` (server SDK) + `react-plaid-link` (client)                          |
+| Authentication            | Clerk                                                                       |
+| Persistence               | Convex (user-scoped banking data and owner/member-authorized Savings Goals) |
+| Language                  | TypeScript (strict)                                                         |
 
 ## Architecture
 
@@ -41,25 +41,75 @@ flowchart LR
     SVC --> ST
 ```
 
-Page data is served through React Router loaders. Plaid mutations use React Router fetchers/forms and resource routes, while Clerk's client SDK handles sign-in and sign-up. No webhook route is implemented. `ItemPanel` and its `AutoSync` backfill polling are implemented but are not currently mounted by the home route.
+Initial page data is served through React Router loaders. The Savings Goal detail
+route then subscribes to authenticated Convex queries for live detail and recent
+activity. Plaid mutations use React Router fetchers/forms and resource routes,
+while Clerk's client SDK handles sign-in and sign-up. No webhook route is
+implemented. `ItemPanel` and its `AutoSync` backfill polling are implemented but
+are not currently mounted by the home route.
 
 ## Components
 
-| Path | Responsibility |
-|---|---|
-| `app/routes/home.tsx` | Authenticated dashboard: loads user-scoped Items, Linked Account snapshots, and Transactions; renders aggregate spending views |
-| `app/routes/api/plaid/*` | Resource routes: mint link tokens, exchange public tokens, run syncs, refresh balances |
-| `app/lib/auth.server.ts` | Requires Clerk authentication and upserts authenticated users into Convex |
-| `app/lib/plaid/service.server.ts` | Orchestrates Link tokens, token exchange, synchronization, and Linked Account retrieval |
-| `app/lib/plaid/sync-engine.server.ts` | Implements cursor pagination, Sync Diff accumulation, and mutation retry |
-| `app/lib/plaid/convex-*-store.server.ts` | Convex-backed persistence implementing the `ItemStore` / `TransactionStore` / `AccountStore` interfaces from `types.ts` |
-| `app/lib/plaid/wiring.server.ts` | Composition root: wires stores into `PlaidService` (lazy singletons) |
-| `app/lib/plaid/errors.server.ts` | Normalizes Plaid errors and maps them to item health states (reauth, consent expiring, error) |
-| `app/lib/crypto.server.ts` | AES-256-GCM encryption for Plaid access tokens at rest |
-| `app/lib/env.server.ts` | Validates all `PLAID_*` env vars at boot, fails fast |
-| `app/components/plaid-link.tsx` | SSR-safe Plaid Link modal wrapper; linking is mounted and reconnect support is implemented |
-| `app/components/dashboard/item-panel.tsx` | Implemented but currently unmounted per-Item UI: health banners, Linked Accounts, Transactions, and sync/refresh actions |
-| `app/components/dashboard/auto-sync.tsx` | Implemented but currently inactive backoff polling while transaction history loads |
+| Path                                      | Responsibility                                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `app/routes/home.tsx`                     | Authenticated dashboard: loads user-scoped Items, Linked Account snapshots, and Transactions; renders aggregate spending views |
+| `app/routes/api/plaid/*`                  | Resource routes: mint link tokens, exchange public tokens, run syncs, refresh balances                                         |
+| `app/lib/auth.server.ts`                  | Requires Clerk authentication and upserts authenticated users into Convex                                                      |
+| `app/lib/plaid/service.server.ts`         | Orchestrates Link tokens, token exchange, synchronization, and Linked Account retrieval                                        |
+| `app/lib/plaid/sync-engine.server.ts`     | Implements cursor pagination, Sync Diff accumulation, and mutation retry                                                       |
+| `app/lib/plaid/convex-*-store.server.ts`  | Convex-backed persistence implementing the `ItemStore` / `TransactionStore` / `AccountStore` interfaces from `types.ts`        |
+| `app/lib/plaid/wiring.server.ts`          | Composition root: wires stores into `PlaidService` (lazy singletons)                                                           |
+| `app/lib/plaid/errors.server.ts`          | Normalizes Plaid errors and maps them to item health states (reauth, consent expiring, error)                                  |
+| `app/lib/crypto.server.ts`                | AES-256-GCM encryption for Plaid access tokens at rest                                                                         |
+| `app/lib/env.server.ts`                   | Validates all `PLAID_*` env vars at boot, fails fast                                                                           |
+| `app/components/plaid-link.tsx`           | SSR-safe Plaid Link modal wrapper; linking is mounted and reconnect support is implemented                                     |
+| `app/components/dashboard/item-panel.tsx` | Implemented but currently unmounted per-Item UI: health banners, Linked Accounts, Transactions, and sync/refresh actions       |
+| `app/components/dashboard/auto-sync.tsx`  | Implemented but currently inactive backoff polling while transaction history loads                                             |
+
+## Savings goals
+
+Open **Savings goals** from the dashboard, or visit `/goals`. The production UI
+uses the Tactile design; the mock-data prototypes and picker have been removed.
+
+- Create a personal goal without a linked Item. Preview a deterministic grid of
+  up to 500 whole-dollar cells with exact totals and strict minimum/maximum bounds.
+- Select cells and confirm **Record savings**. This is a manual record of money
+  set aside, not a transfer, verified balance, or withdrawal tracker.
+- Recordings are atomic and retry-safe. Undo individual Contributions while
+  preserving their attribution and chronological history.
+- Invite signed-in collaborators with single-use links that expire after seven
+  days. A goal permits at most 20 outstanding valid links. Only explicit acceptance
+  grants membership. Removing access does not remove recorded savings.
+- Name and deadline remain editable while active. Target, bounds, and start date
+  stay locked after the first Contribution, even after undo. Archive freezes
+  savings and invalidates outstanding links; unarchive restores neither old links
+  nor removed members.
+- Visible detail pages subscribe to goal details and recent activity through
+  authenticated Convex queries. Pacing uses UTC dates with an inclusive target day.
+- Goals and grouped activity are paginated. Banking data and collaborators' email
+  addresses are not included in shared goal data.
+
+Implementation lives in `convex/goals.ts`, `convex/lib/goals.ts`,
+`app/lib/goals/`, `app/routes/goals.tsx`, `app/routes/goal-detail.tsx`,
+`app/routes/goal-invite.tsx`, and `app/components/goals/`.
+
+Before using sharing, allow intended collaborators in Clerk's sign-up settings.
+The single-user allowlist described below prevents them from registering.
+Deploy the Convex schema/functions **before** deploying the application. Local
+code generation does not deploy functions. No deployment was performed as part
+of this implementation.
+
+Known deferred risk: the current `react-router-serve` access logger includes full
+URLs, so invite tokens and auth return destinations can appear in production
+logs. A server logging change was explicitly deferred. Restrict log access;
+stored token hashes, `no-store`, and `no-referrer` do not fix access-log exposure.
+Review proxy logging and Clerk telemetry before wider sharing.
+
+Verification commands are `bun test`, `bun run typecheck`, and `bun run build`.
+Browser verification still needs two signed-in sessions, sign-in/sign-up invite
+returns, concurrent cell claims, removal during an open session, archive cycles,
+mobile layout, keyboard focus, and activity pagination. Unit tests do not replace
+those checks or prove real Convex OCC retries.
 
 ## Setup & Commands
 
@@ -69,20 +119,21 @@ bun install
 bun run convex:dev     # create/select a dev deployment and push the schema/functions
 ```
 
-Set `CONVEX_URL` in `.env` to the deployment's `CONVEX_CLOUD_URL` (the `CONVEX_SITE_URL` is not used). Generate `CONVEX_INTERNAL_SECRET` with `openssl rand -hex 32`, add it to `.env`, and set the same value on the development deployment:
+Set `CONVEX_URL` in `.env` to the deployment's `CONVEX_CLOUD_URL` (the `CONVEX_SITE_URL` is not used). Generate `CONVEX_INTERNAL_SECRET` with `openssl rand -hex 32`, add it to `.env`, and set the same value on the development deployment. Enable the Convex integration in Clerk, copy the Clerk Frontend API URL, and set it on the Convex deployment:
 
 ```bash
 bunx convex env set CONVEX_INTERNAL_SECRET
+bunx convex env set CLERK_FRONTEND_API_URL https://your-clerk-frontend-api-url
 ```
 
-| Command | What it does |
-|---|---|
-| `bun run dev` | Dev server with HMR at `localhost:5173` |
-| `bun run convex:dev` | Push Convex schema/functions to the development deployment and watch for changes |
-| `bun run build` | Production build to `build/` |
-| `bun run start` | Serve production build at `:3000` |
-| `bun run typecheck` | Generate route types + `tsc` |
-| `bun test` | Tests for crypto, environment validation, Plaid errors and sync behavior, dashboard calculations, authenticated API identity, and user-scoped Convex persistence |
+| Command              | What it does                                                                                                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run dev`        | Dev server with HMR at `localhost:5173`                                                                                                                          |
+| `bun run convex:dev` | Push Convex schema/functions to the development deployment and watch for changes                                                                                 |
+| `bun run build`      | Production build to `build/`                                                                                                                                     |
+| `bun run start`      | Serve production build at `:3000`                                                                                                                                |
+| `bun run typecheck`  | Generate route types + `tsc`                                                                                                                                     |
+| `bun test`           | Tests for crypto, environment validation, Plaid errors and sync behavior, dashboard calculations, authenticated API identity, and user-scoped Convex persistence |
 
 ## Fly.io deployment
 
@@ -90,28 +141,28 @@ The app runs as a single Fly Machine. Per-Item synchronization uses an in-proces
 
 **Deploy order:** run `bunx convex deploy` (pushes schema/functions to the production Convex deployment, authenticated via `CONVEX_DEPLOY_KEY`) **before** `fly deploy` whenever Convex functions or schema change. The Fly image does not include Convex code — the app talks to the hosted deployment at `CONVEX_URL`.
 
-All Fly configuration is **runtime secrets** (`fly secrets set`). There are no build-time environment variables: the Clerk publishable key is served at runtime by `rootAuthLoader` (despite the `VITE_` prefix, it is read from `process.env` on the server), and Convex is server-only, so nothing sensitive is baked into the client bundle during `docker build`. The Dockerfile needs no build args.
+All Fly configuration is **runtime secrets** (`fly secrets set`). There are no build-time environment variables: the Clerk publishable key and public Convex URL are served at runtime by `rootAuthLoader`, so nothing sensitive is baked into the client bundle during `docker build`. The Dockerfile needs no build args.
 
 ### Environment variables
 
-| Variable | Where to set | Runtime |
-|---|---|---|
-| `PLAID_CLIENT_ID` | local `.env` · Fly secrets | yes |
-| `PLAID_SECRET` | local `.env` · Fly secrets | yes |
-| `PLAID_ENV` | local `.env` · Fly secrets (`production`) | yes |
-| `PLAID_PRODUCTS` | local `.env` · Fly secrets | yes |
-| `PLAID_COUNTRY_CODES` | local `.env` · Fly secrets | yes |
-| `PLAID_TRANSACTIONS_DAYS_REQUESTED` | local `.env` · Fly secrets | yes |
-| `PLAID_TOKEN_ENCRYPTION_KEY` | local `.env` · Fly secrets | yes |
-| `PLAID_REDIRECT_URI` | local `.env` · Fly secrets (optional) | yes |
-| `PLAID_WEBHOOK_URL` | local `.env` · Fly secrets (optional) | yes |
-| `PLAID_SANDBOX_LINK_PHONE` | local `.env` only (optional) | yes |
-| `CLERK_SECRET_KEY` | local `.env` · Fly secrets (`sk_live_…`) | yes |
-| `VITE_CLERK_PUBLISHABLE_KEY` | local `.env` · Fly secrets (`pk_live_…`) | yes |
-| `CONVEX_URL` | local `.env` · Fly secrets (prod `CONVEX_CLOUD_URL`) | yes |
-| `CONVEX_INTERNAL_SECRET` | local `.env` · Fly secrets · Convex deployment env (same value) | yes |
-| `CONVEX_DEPLOYMENT` | local `.env` only (set by `convex dev`) | no |
-| `CONVEX_DEPLOY_KEY` | local machine / CI only (Convex deploy keys) | no |
+| Variable                            | Where to set                                                    | Runtime |
+| ----------------------------------- | --------------------------------------------------------------- | ------- |
+| `PLAID_CLIENT_ID`                   | local `.env` · Fly secrets                                      | yes     |
+| `PLAID_SECRET`                      | local `.env` · Fly secrets                                      | yes     |
+| `PLAID_ENV`                         | local `.env` · Fly secrets (`production`)                       | yes     |
+| `PLAID_PRODUCTS`                    | local `.env` · Fly secrets                                      | yes     |
+| `PLAID_COUNTRY_CODES`               | local `.env` · Fly secrets                                      | yes     |
+| `PLAID_TRANSACTIONS_DAYS_REQUESTED` | local `.env` · Fly secrets                                      | yes     |
+| `PLAID_TOKEN_ENCRYPTION_KEY`        | local `.env` · Fly secrets                                      | yes     |
+| `PLAID_REDIRECT_URI`                | local `.env` · Fly secrets (optional)                           | yes     |
+| `PLAID_WEBHOOK_URL`                 | local `.env` · Fly secrets (optional)                           | yes     |
+| `PLAID_SANDBOX_LINK_PHONE`          | local `.env` only (optional)                                    | yes     |
+| `CLERK_SECRET_KEY`                  | local `.env` · Fly secrets (`sk_live_…`)                        | yes     |
+| `VITE_CLERK_PUBLISHABLE_KEY`        | local `.env` · Fly secrets (`pk_live_…`)                        | yes     |
+| `CONVEX_URL`                        | local `.env` · Fly secrets (prod `CONVEX_CLOUD_URL`)            | yes     |
+| `CONVEX_INTERNAL_SECRET`            | local `.env` · Fly secrets · Convex deployment env (same value) | yes     |
+| `CONVEX_DEPLOYMENT`                 | local `.env` only (set by `convex dev`)                         | no      |
+| `CONVEX_DEPLOY_KEY`                 | local machine / CI only (Convex deploy keys)                    | no      |
 
 Validated at boot by `app/lib/env.server.ts` (see `.env.example` for defaults and comments).
 
@@ -150,11 +201,12 @@ fly volumes destroy <volume-id>
 
 ### 2. Configure and deploy Convex
 
-Generate a shared secret, set it on the production Convex deployment, and deploy the functions and schema:
+Generate a shared secret, set it and the production Clerk Frontend API URL on the production Convex deployment, and deploy the functions, schema, and auth configuration:
 
 ```bash
 openssl rand -hex 32
 bunx convex env set --prod CONVEX_INTERNAL_SECRET
+bunx convex env set --prod CLERK_FRONTEND_API_URL https://clerk.your-domain.com
 bunx convex deploy
 ```
 
